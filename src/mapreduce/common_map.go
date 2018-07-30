@@ -1,7 +1,11 @@
 package mapreduce
 
 import (
+	"encoding/json"
 	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"os"
 )
 
 func doMap(
@@ -53,6 +57,47 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
+
+	// Read content of inFile
+	data, err := ioutil.ReadFile(inFile)
+	if err != nil {
+		log.Printf("Error: %v", err)
+	}
+
+	// Execute map function
+	keyValuePairs := mapF(inFile, string(data[:len(data)]))
+
+	// Split the keyValuePairs into a multidimensional array whose size is the
+	// number of reduce tasks
+	//chunkSize := (len(keyValuePairs)-1)/nReduce + 1
+	divided := make([][]KeyValue, nReduce)
+	for _, keyValue := range keyValuePairs {
+		index := ihash(keyValue.Key) % nReduce
+		divided[index] = append(divided[index], keyValue)
+	}
+	log.Printf("%#v", divided)
+
+	// Write divided keyValuePairs to R files, where R is the number of reduce
+	// tasks
+	for i, subKeyValuePairs := range divided {
+		// Get filename for output
+		filePath := reduceName(jobName, mapTask, i)
+
+		// Create output file
+		f, err := os.Create(filePath)
+		if err != nil {
+			log.Printf("Error: %v", err)
+		}
+		enc := json.NewEncoder(f)
+		for _, kv := range subKeyValuePairs {
+			err := enc.Encode(&kv)
+			if err != nil {
+				log.Printf("Error: %v", err)
+			}
+		}
+
+		f.Close()
+	}
 }
 
 func ihash(s string) int {

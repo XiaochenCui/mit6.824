@@ -1,5 +1,17 @@
 package mapreduce
 
+import (
+	"bufio"
+	"encoding/json"
+	"log"
+	"os"
+)
+
+type keyValues struct {
+	Key    string
+	Values []string
+}
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +56,51 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+
+	keyValuesMap := make(map[string][]string)
+	// Read intermediate files
+	for i := 0; i < nMap; i++ {
+		filename := reduceName(jobName, i, reduceTask)
+		file, err := os.Open(filename)
+		if err != nil {
+			log.Printf("Error: %v", err)
+		}
+
+		var tempKeyValuePairs []KeyValue
+		var keyValue KeyValue
+		fileScanner := bufio.NewScanner(file)
+		for fileScanner.Scan() {
+			json.Unmarshal([]byte(fileScanner.Text()), &keyValue)
+			tempKeyValuePairs = append(tempKeyValuePairs, keyValue)
+		}
+		log.Printf("KeyValues: %v", tempKeyValuePairs)
+
+		for _, keyValue := range tempKeyValuePairs {
+			key := keyValue.Key
+			if values, ok := keyValuesMap[key]; ok {
+				keyValuesMap[key] = append(values, keyValue.Value)
+			} else {
+				keyValuesMap[key] = []string{keyValue.Value}
+			}
+		}
+	}
+
+	file, err := os.Create(outFile)
+	if err != nil {
+		log.Printf("Error: %v", err)
+	}
+	enc := json.NewEncoder(file)
+	for k, v := range keyValuesMap {
+		enc.Encode(KeyValue{k, reduceF(k, v)})
+	}
+	file.Close()
+}
+
+func stringInSlice(target string, list []string) bool {
+	for _, s := range list {
+		if s == target {
+			return true
+		}
+	}
+	return false
 }
