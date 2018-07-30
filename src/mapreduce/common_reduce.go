@@ -73,7 +73,7 @@ func doReduce(
 			json.Unmarshal([]byte(fileScanner.Text()), &keyValue)
 			tempKeyValuePairs = append(tempKeyValuePairs, keyValue)
 		}
-		log.Printf("KeyValues: %v", tempKeyValuePairs)
+		debug("KeyValues: %v", tempKeyValuePairs)
 
 		for _, keyValue := range tempKeyValuePairs {
 			key := keyValue.Key

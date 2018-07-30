@@ -75,7 +75,7 @@ func doMap(
 		index := ihash(keyValue.Key) % nReduce
 		divided[index] = append(divided[index], keyValue)
 	}
-	log.Printf("%#v", divided)
+	debug("%#v", divided)
 
 	// Write divided keyValuePairs to R files, where R is the number of reduce
 	// tasks
