@@ -69,7 +69,6 @@ func doMap(
 
 	// Split the keyValuePairs into a multidimensional array whose size is the
 	// number of reduce tasks
-	//chunkSize := (len(keyValuePairs)-1)/nReduce + 1
 	divided := make([][]KeyValue, nReduce)
 	for _, keyValue := range keyValuePairs {
 		index := ihash(keyValue.Key) % nReduce
