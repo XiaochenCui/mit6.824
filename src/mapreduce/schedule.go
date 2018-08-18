@@ -33,32 +33,38 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	// Your code here (Part III, Part IV).
 	//
 	finishedTasks := 0
-	for i := 0; i < ntasks; i++ {
-		workerAddress := <-registerChan
-		fmt.Printf("Assigning #%d task to %s\n", i, workerAddress)
-		inputFile := mapFiles[i]
-		doTaskArgs := DoTaskArgs{
-			JobName:       jobName,
-			File:          inputFile,
-			Phase:         phase,
-			TaskNumber:    i,
-			NumOtherPhase: n_other,
-		}
-		go func() {
-			success := call(workerAddress, "Worker.DoTask", &doTaskArgs, nil)
-			if success {
-				fmt.Printf("Task success\n")
-				registerChan <- workerAddress
-				finishedTasks++
-			} else {
-				fmt.Printf("Task failed\n")
-			}
-		}()
+	tasksChan := make(chan int, ntasks)
+	var taskIndex int
+	for taskIndex := 0; taskIndex < ntasks; taskIndex++ {
+		tasksChan <- taskIndex
 	}
-
-	unfinishedTasks := ntasks - finishedTasks
-	for i := 0; i < unfinishedTasks; i++ {
-		<-registerChan
+	var inputFile string
+	for finishedTasks < ntasks {
+		select {
+		case taskIndex = <-tasksChan:
+			workerAddress := <-registerChan
+			fmt.Printf("Assigning #%d task to %s\n", taskIndex, workerAddress)
+			inputFile = mapFiles[taskIndex]
+			doTaskArgs := DoTaskArgs{
+				JobName:       jobName,
+				File:          inputFile,
+				Phase:         phase,
+				TaskNumber:    taskIndex,
+				NumOtherPhase: n_other,
+			}
+			go func() {
+				success := call(workerAddress, "Worker.DoTask", &doTaskArgs, nil)
+				if success {
+					fmt.Printf("Task #%d success\n", doTaskArgs.TaskNumber)
+					finishedTasks++
+					registerChan <- workerAddress
+				} else {
+					fmt.Printf("Task #%d failed\n", doTaskArgs.TaskNumber)
+					tasksChan <- doTaskArgs.TaskNumber
+				}
+			}()
+		default:
+		}
 	}
 
 	fmt.Printf("Schedule: %v done\n", phase)
