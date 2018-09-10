@@ -56,8 +56,8 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
-
 	keyValuesMap := make(map[string][]string)
+
 	// Read intermediate files
 	for i := 0; i < nMap; i++ {
 		filename := reduceName(jobName, i, reduceTask)
@@ -94,13 +94,4 @@ func doReduce(
 		enc.Encode(KeyValue{k, reduceF(k, v)})
 	}
 	file.Close()
-}
-
-func stringInSlice(target string, list []string) bool {
-	for _, s := range list {
-		if s == target {
-			return true
-		}
-	}
-	return false
 }
