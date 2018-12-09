@@ -219,7 +219,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	if rf.state == 3 {
+	if rf.state == 1 {
 		log.Printf("%d denies vote request from %d", rf.me, args.CandidateId)
 		return
 	}
@@ -239,11 +239,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		selfLastLogIndex = 0
 	}
 
-	log.Printf(`[%d]Log comparison: candidate.LastLogTerm: %d, selfLastLogTerm: %d,
-				candidate.LastLogIndex: %d, selfLastLogIndex: %d, rf.votedFor: %d`,
-		rf.me,
-		args.LastLogTerm, selfLastLogTerm, args.LastLogIndex, selfLastLogIndex,
-		rf.votedFor)
+	//log.Printf(`[%d]Log comparison: candidate.LastLogTerm: %d, selfLastLogTerm: %d,
+	//candidate.LastLogIndex: %d, selfLastLogIndex: %d, rf.votedFor: %d`,
+	//rf.me,
+	//args.LastLogTerm, selfLastLogTerm, args.LastLogIndex, selfLastLogIndex,
+	//rf.votedFor)
 	if rf.votedFor == -1 || rf.votedFor == args.CandidateId {
 		if args.LastLogTerm > selfLastLogTerm {
 			reply.VoteGranted = true
@@ -377,12 +377,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			}
 
 			// Start election
-			log.Printf("%v ready to request vote...\n", rf.me)
+			log.Printf("[%v] ready to request vote (state: %d)...\n", rf.me, rf.state)
 
 			rf.resetTimeout()
 
 			rf.setCandidate()
 			rf.currentTerm++
+			rf.votes = 0
 
 			var lastLogIndex int
 			var lastLogTerm int
