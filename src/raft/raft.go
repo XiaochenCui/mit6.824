@@ -46,12 +46,6 @@ type ApplyMsg struct {
 	CommandIndex int
 }
 
-type Log struct {
-	command []byte // Command for state machine
-	term    int    // When entry was received by leader
-	index   int    // First index is 1
-}
-
 //
 // A Go object implementing a single Raft peer.
 //
@@ -65,8 +59,16 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 	currentTerm int
-	votedFor    int   // candidateId that received vote in current term (-1 indicates none)
-	logs        []Log // Log entries
+	votedFor    int        // candidateId that received vote in current term (-1 indicates none)
+	logs        []ApplyMsg // Log entries
+
+	// Volatile state on all servers
+	commitIndex int // index of highest log entry known to be committed
+	lastApplied int // index of highest log entry applied to state machine
+
+	// Volatile state on leaders
+	nextIndex  []int // for each server, index of the next log entry to send to that server
+	matchIndex []int // for each server, index of highest log entry known to be replicated on server
 
 	state int // 1: leader, 2: candidate, 3: follower
 	votes int
@@ -232,8 +234,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	var selfLastLogTerm int
 	var selfLastLogIndex int
 	if len(rf.logs) > 0 {
-		selfLastLogTerm = rf.logs[len(rf.logs)-1].term
-		selfLastLogIndex = rf.logs[len(rf.logs)-1].index
+		selfLastLogTerm = rf.currentTerm
+		selfLastLogIndex = rf.logs[len(rf.logs)-1].CommandIndex
 	} else {
 		selfLastLogTerm = 0
 		selfLastLogIndex = 0
@@ -388,8 +390,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 			var lastLogIndex int
 			var lastLogTerm int
 			if len(rf.logs) > 0 {
-				lastLogIndex = rf.logs[len(rf.logs)-1].index
-				lastLogTerm = rf.logs[len(rf.logs)-1].term
+				lastLogIndex = rf.logs[len(rf.logs)-1].CommandIndex
+				lastLogTerm = rf.currentTerm
 			} else {
 				lastLogIndex = 0
 				lastLogTerm = 0
@@ -442,6 +444,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 					}(peer)
 				}
 			}
+
 			time.Sleep(100 * time.Millisecond)
 		}
 	}()
