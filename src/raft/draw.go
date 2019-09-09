@@ -79,7 +79,7 @@ func InitLogEvent() {
 		panic(err)
 	}
 
-	// go Writer()
+	go Writer()
 }
 
 func LogSystemStart() {
@@ -130,7 +130,7 @@ func LogEvent(name string, content string) {
 	s += t.Format(time.RFC3339Nano)
 	// s += t.String()
 	s += "$$" + name + "$$" + content + "\n"
-	// msgChan <- s
+	msgChan <- s
 }
 
 func Writer() {
