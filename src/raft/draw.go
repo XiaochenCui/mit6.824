@@ -7,7 +7,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"os"
-	"sync"
+	// "sync"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	mu      = &sync.Mutex{}
+	// mu      = &sync.Mutex{}
 	created = false
 	f       *os.File
 	msgChan = make(chan string, 10)
@@ -114,6 +114,14 @@ func LogRoleChange(id int, before, after string) {
 	}
 	b, _ := json.Marshal(r)
 	LogEvent("role change", string(b))
+}
+
+func LogConnect(id int) {
+	LogEvent("connect", fmt.Sprintf("%v", id))
+}
+
+func LogDisconnect(id int) {
+	LogEvent("disconnect", fmt.Sprintf("%v", id))
 }
 
 func LogEvent(name string, content string) {

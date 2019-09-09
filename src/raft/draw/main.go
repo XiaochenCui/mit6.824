@@ -1,40 +1,36 @@
 package main
 
-import "github.com/fogleman/gg"
-
-// import "math/rand"
-
 import (
-	"encoding/json"
-	"math"
-
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"math"
+	"os"
+	"raft"
 	"strconv"
 	"time"
 
-	// "encoding/json"
-	"os"
-
+	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
-	// "golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/gofont/gomono"
-
-	"raft"
 )
 
-const (
+// import "math/rand"
+
+// "encoding/json"
+
+// "golang.org/x/image/font/gofont/goregular"
+
+var (
 	W = 1524
 	H = 1124
 	// PointR = 7
-)
-
-var (
-	dc        *gg.Context
-	interval  float64
-	leftBlank = float64(300)
+	dc         *gg.Context
+	interval   float64
+	leftBlank  = float64(300)
+	arrowRatio = float64(10)
 
 	lineWidth = float64(3)
 
@@ -81,21 +77,6 @@ func Drawing() {
 		contents = append(contents, fileScanner.Text())
 	}
 
-	// drawing init
-	dc = gg.NewContext(W, H)
-	// dc.SetRGB255(0, 0, 0)
-	dc.SetRGB255(255, 255, 255)
-	// dc.SetRGB255(50, 50, 50)
-	dc.Clear()
-
-	font, err := truetype.Parse(gomono.TTF)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	face := truetype.NewFace(font, &truetype.Options{Size: 16})
-	dc.SetFontFace(face)
-
 	var runner []int
 	intervalsMap := make(map[int][]Interval)
 	for _, line := range contents {
@@ -126,6 +107,24 @@ func Drawing() {
 		runnerXMap[id] = float64(x)
 	}
 	log.Print(runnerXMap)
+
+	totalSeconds := int(endTime.Sub(baseTime).Seconds())
+	H = 200 + totalSeconds*1000
+
+	// drawing init
+	dc = gg.NewContext(W, H)
+	// dc.SetRGB255(0, 0, 0)
+	dc.SetRGB255(255, 255, 255)
+	// dc.SetRGB255(50, 50, 50)
+	dc.Clear()
+
+	font, err := truetype.Parse(gomono.TTF)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	face := truetype.NewFace(font, &truetype.Options{Size: 16})
+	dc.SetFontFace(face)
 
 	for id, intervals := range intervalsMap {
 		x := runnerXMap[id]
@@ -173,18 +172,22 @@ func Drawing() {
 				panic(err)
 			}
 			log.Print(rpc)
+			log.Print(rpc.Args)
 
 			y := TimeToY(t)
 			start := runnerXMap[rpc.Sender]
-            end := runnerXMap[rpc.Receiver]
-            
-            switch rpc.Kind {
-            case raft.RPCKindHeartbeat:
-                DrawArrow("#b3cde0", y, start, end, 2)
+			end := runnerXMap[rpc.Receiver]
 
-            case raft.RPCKindRequestVote:
-                DrawArrow("#fe8a71", y, start, end, 0)
-            }
+			// x := (start + end) / 2 - 100
+			// dc.DrawString(raft.MapToString(rpc.Args), y, x)
+
+			switch rpc.Kind {
+			case raft.RPCKindHeartbeat:
+				DrawArrow("#b3cde0", y, start, end, 2)
+
+			case raft.RPCKindRequestVote:
+				DrawArrow("#fe8a71", y, start, end, 0)
+			}
 
 		case "role change":
 			rc := raft.RoleChange{}
@@ -201,12 +204,43 @@ func Drawing() {
 			x := runnerXMap[rc.ID]
 
 			// log.Printf("id: %v, x: %v", id, x)
-			dc.SetHexColor("#fe4a49")
+			dc.SetHexColor("#f37736")
 			dc.DrawPoint(x, y, 7)
 			dc.Fill()
 			dc.Stroke()
 
 			s := fmt.Sprintf("%s -> %s", rc.Before, rc.After)
+			if s[0:1] == "c" {
+				y += 12
+			} else {
+				y -= 2
+			}
+			dc.DrawString(s, x+10, y)
+
+		case "connect":
+			y := TimeToY(t)
+			id, _ := strconv.Atoi(msg)
+			x := runnerXMap[id]
+
+			dc.SetHexColor("#7bc043")
+			dc.DrawPoint(x, y, 9)
+			dc.Fill()
+			dc.Stroke()
+
+			s := fmt.Sprintf("%d connected", id)
+			dc.DrawString(s, x+10, y)
+
+		case "disconnect":
+			y := TimeToY(t)
+			id, _ := strconv.Atoi(msg)
+			x := runnerXMap[id]
+
+			dc.SetHexColor("#ee4035")
+			dc.DrawPoint(x, y, 9)
+			dc.Fill()
+			dc.Stroke()
+
+			s := fmt.Sprintf("%d disconnected", id)
 			dc.DrawString(s, x+10, y)
 		}
 	}
@@ -251,7 +285,7 @@ func ParseLine(s string) (time.Time, string, string) {
 func TimeToY(t time.Time) float64 {
 	tUnix := float64(t.UnixNano())
 	ratio := float64(tUnix-baseTimeUnix) / float64(endTimeUnix-baseTimeUnix)
-	r := 35 + 1000*ratio
+	r := 35 + float64(H-70)*ratio
 	return r
 }
 
@@ -269,19 +303,19 @@ func DrawArrow(color string, y, start, end float64, fixLineWidth float64) {
 
 	widthBuf := float64(len(runnerXMap)) - math.Abs(start-end)/interval
 	width := lineWidth + widthBuf*2.5
-    dc.SetLineWidth(width)
-    
-    if fixLineWidth > 0 {
-        dc.SetLineWidth(fixLineWidth)
-    }
+	dc.SetLineWidth(width)
 
-    dc.SetHexColor(color)
+	if fixLineWidth > 0 {
+		dc.SetLineWidth(fixLineWidth)
+	}
+
+	dc.SetHexColor(color)
 	if start < end {
-		dc.DrawLine(end-20, y-20, end, y)
-		dc.DrawLine(end-20, y+20, end, y)
+		dc.DrawLine(end-arrowRatio, y-arrowRatio, end, y)
+		dc.DrawLine(end-arrowRatio, y+arrowRatio, end, y)
 	} else {
-		dc.DrawLine(end+20, y-20, end, y)
-		dc.DrawLine(end+20, y+20, end, y)
+		dc.DrawLine(end+arrowRatio, y-arrowRatio, end, y)
+		dc.DrawLine(end+arrowRatio, y+arrowRatio, end, y)
 	}
 
 	log.Print(start, end)
@@ -292,17 +326,17 @@ func DrawArrow(color string, y, start, end float64, fixLineWidth float64) {
 }
 
 func DrawTimeSeries(base, end time.Time) {
-    diff := end.Sub(base)
-    n := int(diff.Seconds() / 0.2)
-    log.Printf("diff: %v, n: %v", diff, n)
+	diff := end.Sub(base)
+	n := int(diff.Seconds() / 0.2)
+	log.Printf("diff: %v, n: %v", diff, n)
 
 	for i := 0; i < n; i++ {
-        s := base.Format("15:04:05.000")
-        log.Print(s)
+		s := base.Format("15:04:05.000")
+		log.Print(s)
 
-        y := TimeToY(base)
-        log.Print(y)
-        dc.DrawString(s, 160, y)
+		y := TimeToY(base)
+		log.Print(y)
+		dc.DrawString(s, 160, y)
 
 		base = base.Add(200 * time.Millisecond)
 	}

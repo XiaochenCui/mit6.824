@@ -9,3 +9,7 @@ chaos
 *.log
 *.png
 *.out
+
+out
+
+.DS_Store

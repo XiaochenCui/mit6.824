@@ -1,11 +1,15 @@
 package raft
 
-import "sort"
-import "log"
-import "fmt"
-import "github.com/fatih/structs"
-import "math/rand"
-import "time"
+import (
+	"fmt"
+	"log"
+	"math/rand"
+	"reflect"
+	"sort"
+	"time"
+
+	"github.com/fatih/structs"
+)
 
 // Debugging
 const Debug = 0
@@ -22,7 +26,7 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 }
 
 type KeyValue struct {
-	Key string
+	Key   string
 	Value interface{}
 }
 
@@ -41,7 +45,7 @@ func StructToString(originStruct interface{}) string {
 	kvs := make([]KeyValue, 0, len(m))
 	for _, key := range keys {
 		kv := KeyValue{
-			Key: key,
+			Key:   key,
 			Value: s.Field(key).Value(),
 		}
 		kvs = append(kvs, kv)
@@ -53,6 +57,25 @@ func StructToString(originStruct interface{}) string {
 		r += kv.Key
 		r += ":"
 		r += fmt.Sprintf("%v", kv.Value)
+		r += ", "
+	}
+	r = r[:len(r)-2]
+	r += ")"
+	return r
+}
+
+func MapToString(m interface{}) string {
+	v := reflect.ValueOf(m)
+	if v.Kind() != reflect.Map {
+		panic(fmt.Errorf("arg kind is %v", v.Kind()))
+	}
+	var r string
+	r += "("
+	for _, key := range v.MapKeys() {
+		r += key.String()
+		r += ":"
+		strct := v.MapIndex(key)
+		r += fmt.Sprintf("%v", strct)
 		r += ", "
 	}
 	r = r[:len(r)-2]

@@ -252,6 +252,8 @@ func (cfg *config) connect(i int) {
 			cfg.net.Enable(endname, true)
 		}
 	}
+
+	LogConnect(i)
 }
 
 // detach server i from the net.
@@ -275,6 +277,8 @@ func (cfg *config) disconnect(i int) {
 			cfg.net.Enable(endname, false)
 		}
 	}
+
+	LogDisconnect(i)
 }
 
 func (cfg *config) rpcCount(server int) int {

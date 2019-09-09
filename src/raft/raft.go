@@ -17,11 +17,13 @@ package raft
 //   in the same server.
 //
 
-import "time"
-import "sync"
-import "labrpc"
-import "log"
-import "fmt"
+import (
+	"fmt"
+	"labrpc"
+	"log"
+	"sync"
+	"time"
+)
 
 // import "bytes"
 // import "labgob"
@@ -153,10 +155,18 @@ type RequestVoteReply struct {
 	VoteGranted bool
 }
 
-type AppendEntriesArgs struct{
+type AppendEntriesArgs struct {
+	Term         int
+	LeaderID     int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []interface{}
+	LeaderCommit int
 }
 
-type AppendEntriesReply struct{
+type AppendEntriesReply struct {
+	Term    int
+	Success bool
 }
 
 func (arg *RequestVoteArgs) String() string {
@@ -165,6 +175,16 @@ func (arg *RequestVoteArgs) String() string {
 }
 
 func (arg *RequestVoteReply) String() string {
+	s := StructToString(arg)
+	return s
+}
+
+func (arg *AppendEntriesArgs) String() string {
+	s := StructToString(arg)
+	return s
+}
+
+func (arg *AppendEntriesReply) String() string {
 	s := StructToString(arg)
 	return s
 }
@@ -188,20 +208,20 @@ func (rf *Raft) String() string {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	defer func() {
-		log.Printf("return value: %v", reply)
-	}()
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
-	rf.ValidRpcReceived = true
+	// rf.ValidRpcReceived = true
 	if args.Term < rf.CurrentTerm {
 		reply.VoteGranted = false
 		return
 	}
 
 	if args.Term > rf.CurrentTerm {
-		rf.CurrentTerm = args.Term
+		reply.VoteGranted = true
+		rf.VotedFor = args.CandidateID
+		return
 	}
 
 	if rf.VotedFor == -1 || rf.VotedFor == args.CandidateID {
@@ -241,29 +261,97 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	// log.Printf("%v send %v", rf, args)
+	log.Printf("%v send %v to [%v]", rf, args, server)
+
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 
 	// log
 	LogRPC(rf.me, server, RPCKindRequestVote, args, reply)
+
+	log.Printf("%v receive reply: %v", rf, reply)
 
 	return ok
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
-	rf.ValidRpcReceived = true
+	defer rf.mu.Unlock()
+
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
-	rf.mu.Unlock()
+
+	if args.Term < rf.CurrentTerm {
+		reply.Success = false
+		return
+	}
+
+	rf.CurrentTerm = args.Term
+
+	reply.Success = true
+	reply.Term = rf.CurrentTerm
+
+	rf.ValidRpcReceived = true
+
+	rf.VotedFor = -1
+	rf.VoteCount = 0
+
+	rf.ConvertToFollower()
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	log.Printf("%v send %v to [%v]", rf, args, server)
+
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
 	// log
 	LogRPC(rf.me, server, RPCKindHeartbeat, args, reply)
 
+	log.Printf("%v get return value: %v", rf, reply)
+	if !ok {
+		if reply.Term > rf.CurrentTerm {
+			rf.CurrentTerm = reply.Term
+		}
+	}
+
 	return ok
+}
+
+func (rf *Raft) ConvertToLeader() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// log
+	LogRoleChange(rf.me, rf.Role, "leader")
+
+	log.Printf("%v grant %v votes, candidate routine finished", rf, rf.VoteCount)
+	log.Printf("voters: %v", rf.Voters)
+	rf.Role = RoleLeader
+}
+
+func (rf *Raft) ConvertToCandidate() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// log
+	LogRoleChange(rf.me, rf.Role, RoleCandidate)
+	rf.Role = RoleCandidate
+
+	rf.CurrentTerm++
+	rf.VoteCount = 0
+
+	log.Printf("%v convert to candidate, attr: %v", rf, StructToString(rf))
+}
+
+func (rf *Raft) ConvertToFollower() {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	// log
+	LogRoleChange(rf.me, rf.Role, RoleFollower)
+	rf.Role = RoleFollower
+	log.Printf("%v convert to follower, attr: %v", rf, StructToString(rf))
 }
 
 //
@@ -309,23 +397,7 @@ func (rf *Raft) StartElection() {
 		return
 	}
 
-	if rf.VoteCount > len(rf.peers)/2 {
-
-		// log
-		LogRoleChange(rf.me, rf.Role, "leader")
-
-		log.Printf("%v grant %v votes, candidate routine finished", rf, rf.VoteCount)
-		log.Printf("voters: %v", rf.Voters)
-		rf.Role = RoleLeader
-		rf.mu.Unlock()
-		return
-	}
-
-	LogRoleChange(rf.me, rf.Role, RoleCandidate)
-	rf.Role = RoleCandidate
-
-	rf.CurrentTerm++
-	rf.VoteCount = 0
+	rf.ConvertToCandidate()
 	rf.mu.Unlock()
 
 	args := RequestVoteArgs{
@@ -333,25 +405,30 @@ func (rf *Raft) StartElection() {
 		CandidateID:  rf.me,
 		LastLogIndex: rf.CommitIndex,
 	}
-	for i, p := range rf.peers {
+	for i := range rf.peers {
 		if i == rf.me {
 			rf.mu.Lock()
 			rf.VoteCount++
-			// rf.VotedFor = i
+			rf.VotedFor = i
 			rf.mu.Unlock()
 			continue
 		}
-		log.Printf("%v send %v to [%v]%v", rf, &args, i, p)
 		go func(i int) {
 			reply := RequestVoteReply{}
 			rf.sendRequestVote(i, &args, &reply)
+
 			rf.mu.Lock()
-			log.Printf("%v receive reply: %v", rf, &reply)
+			defer rf.mu.Unlock()
+
 			if reply.VoteGranted {
 				rf.VoteCount++
 				rf.Voters = append(rf.Voters, i)
+
+				if rf.VoteCount > len(rf.peers)/2 {
+					rf.ConvertToLeader()
+					return
+				}
 			}
-			rf.mu.Unlock()
 		}(i)
 	}
 }
@@ -365,6 +442,7 @@ func (rf *Raft) Loop() {
 		time.Sleep(rf.ElectionTimeout)
 
 		rf.mu.Lock()
+		log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
 		if !rf.ValidRpcReceived {
 			go rf.StartElection()
 		}
@@ -375,13 +453,18 @@ func (rf *Raft) Loop() {
 func (rf *Raft) LeaderAppendEntries() {
 	for {
 		_, b := rf.GetState()
-		log.Printf("%v [leader: %v] ready to send append entries rpc", rf, b)
+		// log.Printf("%v [leader: %v] ready to send append entries rpc", rf, b)
 		if b {
-			for i:= range rf.peers {
+			for i := range rf.peers {
 				if i == rf.me {
 					continue
 				}
-				rf.sendAppendEntries(i, &AppendEntriesArgs{}, &AppendEntriesReply{})
+
+				args := AppendEntriesArgs{
+					Term:     rf.CurrentTerm,
+					LeaderID: rf.me,
+				}
+				go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -407,6 +490,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+
+	rf.mu = sync.Mutex{}
 
 	rf.CurrentTerm = 0
 	rf.ElectionTimeout = time.Duration(RandomInt(150, 300)) * time.Millisecond
