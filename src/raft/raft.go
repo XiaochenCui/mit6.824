@@ -29,7 +29,7 @@ import (
 // import "labgob"
 
 var (
-	debugLock = false
+	debugLock = true
 	// mu        = &sync.Mutex{}
 )
 
@@ -426,8 +426,9 @@ func (rf *Raft) StartElection() {
 		return
 	}
 
-	rf.ConvertToCandidate()
 	rf.mu.Unlock()
+
+	rf.ConvertToCandidate()
 
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
@@ -449,7 +450,6 @@ func (rf *Raft) StartElection() {
 			reply := RequestVoteReply{}
 			rf.sendRequestVote(i, &args, &reply)
 
-			log.Printf("%v going to get lock", rf)
 			if debugLock {
 				log.Printf("%v going to get lock", rf)
 			}
@@ -485,10 +485,10 @@ func (rf *Raft) Loop() {
 		}
 		rf.mu.Lock()
 		log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
+		rf.mu.Unlock()
 		if !rf.ValidRpcReceived {
 			go rf.StartElection()
 		}
-		rf.mu.Unlock()
 	}
 }
 
