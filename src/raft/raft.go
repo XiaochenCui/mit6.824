@@ -28,6 +28,11 @@ import (
 // import "bytes"
 // import "labgob"
 
+var (
+	debugLock = false
+	// mu        = &sync.Mutex{}
+)
+
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
 }
@@ -86,6 +91,9 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	term = rf.CurrentTerm
 	if rf.Role == "leader" {
@@ -209,6 +217,9 @@ func (rf *Raft) String() string {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
@@ -274,6 +285,9 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -302,6 +316,9 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -319,6 +336,9 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 }
 
 func (rf *Raft) ConvertToLeader() {
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -331,6 +351,9 @@ func (rf *Raft) ConvertToLeader() {
 }
 
 func (rf *Raft) ConvertToCandidate() {
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -345,6 +368,9 @@ func (rf *Raft) ConvertToCandidate() {
 }
 
 func (rf *Raft) ConvertToFollower() {
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
@@ -390,6 +416,9 @@ func (rf *Raft) Kill() {
 
 func (rf *Raft) StartElection() {
 	// Check if candidating should go on
+	if debugLock {
+		log.Printf("%v going to get lock", rf)
+	}
 	rf.mu.Lock()
 
 	if rf.Role == "leader" {
@@ -407,6 +436,9 @@ func (rf *Raft) StartElection() {
 	}
 	for i := range rf.peers {
 		if i == rf.me {
+			if debugLock {
+				log.Printf("%v going to get lock", rf)
+			}
 			rf.mu.Lock()
 			rf.VoteCount++
 			rf.VotedFor = i
@@ -417,6 +449,10 @@ func (rf *Raft) StartElection() {
 			reply := RequestVoteReply{}
 			rf.sendRequestVote(i, &args, &reply)
 
+			log.Printf("%v going to get lock", rf)
+			if debugLock {
+				log.Printf("%v going to get lock", rf)
+			}
 			rf.mu.Lock()
 			defer rf.mu.Unlock()
 
@@ -435,12 +471,18 @@ func (rf *Raft) StartElection() {
 
 func (rf *Raft) Loop() {
 	for {
+		if debugLock {
+			log.Printf("%v going to get lock", rf)
+		}
 		rf.mu.Lock()
 		rf.ValidRpcReceived = false
 		rf.mu.Unlock()
 
 		time.Sleep(rf.ElectionTimeout)
 
+		if debugLock {
+			log.Printf("%v going to get lock", rf)
+		}
 		rf.mu.Lock()
 		log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
 		if !rf.ValidRpcReceived {
