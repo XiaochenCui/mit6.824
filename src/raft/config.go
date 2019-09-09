@@ -301,7 +301,10 @@ func (cfg *config) checkOneLeader() int {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 
 		leaders := make(map[int][]int)
+		log.Print(cfg.connected)
 		for i := 0; i < cfg.n; i++ {
+			_, b := cfg.rafts[i].GetState()
+			log.Printf("instance %v is leader: %v", i, b)
 			if cfg.connected[i] {
 				if term, leader := cfg.rafts[i].GetState(); leader {
 					leaders[term] = append(leaders[term], i)
