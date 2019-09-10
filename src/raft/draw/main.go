@@ -101,6 +101,8 @@ func Drawing() {
 		}
 	}
 
+	baseTime = baseTime.Truncate(time.Second)
+
 	interval = float64(900 / (len(runner) - 1))
 	for i, id := range runner {
 		x := leftBlank + float64(i)*interval
