@@ -587,6 +587,7 @@ func (rf *Raft) StartElection() {
 
 				if rf.VoteCount > len(rf.peers)/2 {
 					rf.ConvertToLeader()
+					go rf.SendHeartBeat()
 					return
 				}
 			}
@@ -645,23 +646,27 @@ func (rf *Raft) LeaderAppendEntries() {
 	for {
 		_, b := rf.GetState()
 		// log.Printf("%v [leader: %v] ready to send append entries rpc", rf, b)
-		rf.mu.Lock()
 		if b {
-			for i := range rf.peers {
-				if i == rf.me {
-					continue
-				}
-
-				args := AppendEntriesArgs{
-					Term:     rf.CurrentTerm,
-					LeaderID: rf.me,
-				}
-				go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
-			}
+			go rf.SendHeartBeat()
 		}
-		rf.mu.Unlock()
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(80 * time.Millisecond)
 	}
+}
+
+func (rf *Raft) SendHeartBeat() {
+	rf.mu.Lock()
+	for i := range rf.peers {
+		if i == rf.me {
+			continue
+		}
+
+		args := AppendEntriesArgs{
+			Term:     rf.CurrentTerm,
+			LeaderID: rf.me,
+		}
+		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
+	}
+	rf.mu.Unlock()
 }
 
 //
