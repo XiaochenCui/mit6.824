@@ -17,15 +17,7 @@ import (
 	"golang.org/x/image/font/gofont/gomono"
 )
 
-// import "math/rand"
-
-// "encoding/json"
-
-// "golang.org/x/image/font/gofont/goregular"
-
 var (
-	W = 1524
-	H = 1124
 	// PointR = 7
 	dc         *gg.Context
 	interval   float64
@@ -42,6 +34,15 @@ var (
 	endTimeUnix  float64
 
 	runnerIntervals = make(map[int][]Interval)
+
+	// log file
+	logContent []string
+
+	// image size
+	W = 1524
+	H int
+
+	runner []int
 )
 
 type Interval struct {
@@ -54,34 +55,30 @@ func init() {
 }
 
 func main() {
-
-	// dc := gg.NewContext(1024, 1024)
-	// dc.SetRGB(1, 1, 1)
-	// dc.Clear()
-	// dc.SetRGB(0, 0, 0)
-	// dc.DrawStringAnchored("Hello, world!", 512, 512, 0.5, 0.5)
-	// dc.SavePNG("out.png")
-
+	ReadLog()
+	Preprocess()
 	Drawing()
 }
 
-func Drawing() {
+func ReadLog() {
 	filename := "event.log"
 	file, err := os.Open(filename)
+	defer file.Close()
+
 	if err != nil {
 		log.Printf("Error: %v", err)
 	}
 
-	var contents []string
-
 	fileScanner := bufio.NewScanner(file)
 	for fileScanner.Scan() {
-		contents = append(contents, fileScanner.Text())
+		logContent = append(logContent, fileScanner.Text())
 	}
+}
 
-	var runner []int
+func Preprocess() {
+
 	intervalsMap := make(map[int][]Interval)
-	for _, line := range contents {
+	for _, line := range logContent {
 		t, header, msg := ParseLine(line)
 		log.Print(t, header, msg)
 
@@ -110,6 +107,7 @@ func Drawing() {
 	// log.Panic(intervalsMap)
 
 	baseTime = baseTime.Truncate(time.Second)
+	endTime = endTime.Add(1 * time.Second)
 
 	interval = float64(900 / (len(runner) - 1))
 	// log.Panic(runner)
@@ -120,7 +118,15 @@ func Drawing() {
 	log.Print(runnerXMap)
 
 	totalSeconds := int(endTime.Sub(baseTime).Seconds())
-	H = 200 + totalSeconds*1000
+	H = 1200 + totalSeconds*1000
+	log.Print(endTime)
+	log.Print(TimeToY(endTime))
+	log.Print(H)
+
+	// H = int(TimeToY(endTime)) + 50
+	// log.Print(endTime)
+	log.Print(TimeToY(endTime))
+	// log.Panic(H)
 
 	// drawing init
 	dc = gg.NewContext(W, H)
@@ -170,7 +176,10 @@ func Drawing() {
 		}
 	}
 
-	for _, line := range contents {
+}
+
+func Drawing() {
+	for _, line := range logContent {
 		t, header, msg := ParseLine(line)
 		// log.Print(t, header, msg)
 
@@ -309,10 +318,15 @@ func ParseLine(s string) (time.Time, string, string) {
 }
 
 func TimeToY(t time.Time) float64 {
-	tUnix := float64(t.UnixNano())
-	ratio := float64(tUnix-baseTimeUnix) / float64(endTimeUnix-baseTimeUnix)
-	r := 35 + float64(H-70)*ratio
-	return r
+	diff := t.Sub(baseTime)
+	ms := float64(diff.Nanoseconds()) / math.Pow10(6)
+	offset := float64(35)
+	return ms + offset
+
+	// tUnix := float64(t.UnixNano())
+	// ratio := float64(tUnix-baseTimeUnix) / float64(endTimeUnix-baseTimeUnix)
+	// r := 35 + float64(H-70)*ratio
+	// return r
 }
 
 func DrawArrow(color string, y, start, end float64, fixLineWidth float64) {
