@@ -625,6 +625,7 @@ func (rf *Raft) Loop() {
 		}
 
 		log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
+		validRPCReceived := rf.ValidRpcReceived
 
 		if debugLock {
 			log.Printf("%v going to release lock", rf)
@@ -634,7 +635,7 @@ func (rf *Raft) Loop() {
 			log.Printf("%v release lock success", rf)
 		}
 
-		if !rf.ValidRpcReceived {
+		if !validRPCReceived {
 			go rf.StartElection()
 		}
 	}
@@ -644,6 +645,7 @@ func (rf *Raft) LeaderAppendEntries() {
 	for {
 		_, b := rf.GetState()
 		// log.Printf("%v [leader: %v] ready to send append entries rpc", rf, b)
+		rf.mu.Lock()
 		if b {
 			for i := range rf.peers {
 				if i == rf.me {
@@ -657,6 +659,7 @@ func (rf *Raft) LeaderAppendEntries() {
 				go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 			}
 		}
+		rf.mu.Unlock()
 		time.Sleep(50 * time.Millisecond)
 	}
 }

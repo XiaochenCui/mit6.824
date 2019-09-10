@@ -40,6 +40,8 @@ var (
 	endTime      time.Time
 	baseTimeUnix float64
 	endTimeUnix  float64
+
+	runnerIntervals = make(map[int][]Interval)
 )
 
 type Interval struct {
@@ -95,15 +97,22 @@ func Drawing() {
 			baseTimeUnix = tUnix
 		case "runner start":
 			id, _ := strconv.Atoi(msg)
-			runner = append(runner, id)
+			if !contains(runner, id) {
+				runner = append(runner, id)
+			}
 			is := intervalsMap[id]
+			if len(is) > 0 {
+				is[len(is)-1].End = t
+			}
 			intervalsMap[id] = append(is, Interval{Start: t})
 		}
 	}
+	// log.Panic(intervalsMap)
 
 	baseTime = baseTime.Truncate(time.Second)
 
 	interval = float64(900 / (len(runner) - 1))
+	// log.Panic(runner)
 	for i, id := range runner {
 		x := leftBlank + float64(i)*interval
 		runnerXMap[id] = float64(x)
@@ -128,6 +137,7 @@ func Drawing() {
 	face := truetype.NewFace(font, &truetype.Options{Size: 16})
 	dc.SetFontFace(face)
 
+	// log.Panicf("interval map: %v", intervalsMap)
 	for id, intervals := range intervalsMap {
 		x := runnerXMap[id]
 		if len(intervals) == 1 {
@@ -143,6 +153,20 @@ func Drawing() {
 			dc.SetLineWidth(3)
 			dc.DrawLine(x, start, x, end)
 			dc.Stroke()
+		} else {
+			for _, interval := range intervals {
+				start := TimeToY(interval.Start)
+				end := float64(H - 20)
+				if !interval.End.IsZero() {
+					end = TimeToY(interval.End)
+				}
+
+				log.Print(start, end)
+				dc.SetHexColor("#3da4ab")
+				dc.SetLineWidth(3)
+				dc.DrawLine(x, start, x, end)
+				dc.Stroke()
+			}
 		}
 	}
 
@@ -342,4 +366,13 @@ func DrawTimeSeries(base, end time.Time) {
 
 		base = base.Add(200 * time.Millisecond)
 	}
+}
+
+func contains(s []int, e int) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
 }
