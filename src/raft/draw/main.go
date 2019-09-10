@@ -106,7 +106,7 @@ func Preprocess() {
 	}
 	// log.Panic(intervalsMap)
 
-	baseTime = baseTime.Truncate(time.Second)
+	baseTime = baseTime.Truncate(200 * time.Millisecond)
 	endTime = endTime.Add(1 * time.Second)
 
 	interval = float64(900 / (len(runner) - 1))
