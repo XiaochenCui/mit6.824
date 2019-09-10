@@ -185,4 +185,30 @@ func PreProcess() {
 		}
 	}
 	log.Printf("max acquire time: %v, lock: %v", maxD, raft.StructToString(maxL))
+
+	maxD = 0
+	for k, v := range locks {
+		log.Printf("runner %d", k)
+		for _, l := range v {
+			newD := l.ReleaseTime.Sub(l.AcquireSucTime)
+			if newD > maxD {
+				maxD = newD
+				maxL = l
+			}
+		}
+	}
+	log.Printf("max hold time: %v, lock: %v", maxD, raft.StructToString(maxL))
+
+	maxD = 0
+	for k, v := range locks {
+		log.Printf("runner %d", k)
+		for _, l := range v {
+			newD := l.ReleaseSucTime.Sub(l.ReleaseTime)
+			if newD > maxD {
+				maxD = newD
+				maxL = l
+			}
+		}
+	}
+	log.Printf("max release time: %v, lock: %v", maxD, raft.StructToString(maxL))
 }

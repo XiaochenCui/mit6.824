@@ -522,7 +522,14 @@ func (rf *Raft) StartElection() {
 		return
 	}
 
-	rf.ConvertToCandidate()
+	// rf.ConvertToCandidate()
+	LogRoleChange(rf.me, rf.Role, RoleCandidate)
+	rf.Role = RoleCandidate
+
+	rf.CurrentTerm++
+	rf.VoteCount = 0
+
+	log.Printf("%v convert to candidate, attr: %v", rf, StructToString(rf))
 
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
