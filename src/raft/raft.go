@@ -18,10 +18,12 @@ package raft
 //
 
 import (
+	"runtime"
 	"fmt"
 	"labrpc"
 	"log"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -30,7 +32,7 @@ import (
 // import "labgob"
 
 var (
-	debugLock = false
+	debugLock = true
 	// mu        = &sync.Mutex{}
 )
 
@@ -89,6 +91,31 @@ type Raft struct {
 	VoteCount        int
 	Voters           []int
 	ValidRpcReceived bool
+	ApplyCH          chan ApplyMsg
+}
+
+func (rf *Raft) Lock() {
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v acquire lock at line %d", rf, line)
+	}
+	rf.mu.Lock()
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v acquire lock success at line %d", rf, line)
+	}
+}
+
+func (rf *Raft) Unlock() {
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v release lock at line %d", rf, line)
+	}
+	rf.mu.Unlock()
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v release lock success at line %d", rf, line)
+	}
 }
 
 // return currentTerm and whether this server
@@ -98,25 +125,12 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
-	if debugLock {
-		log.Printf("%v going to acquire lock", rf)
-	}
-	rf.mu.Lock()
-	if debugLock {
-		log.Printf("%v acquire lock success", rf)
-	}
+	rf.Lock()
+	defer rf.Unlock()
 
 	term = rf.CurrentTerm
 	if rf.Role == "leader" {
 		isleader = true
-	}
-
-	if debugLock {
-		log.Printf("%v going to release lock", rf)
-	}
-	rf.mu.Unlock()
-	if debugLock {
-		log.Printf("%v release lock success", rf)
 	}
 
 	return term, isleader
@@ -235,8 +249,8 @@ func (rf *Raft) String() string {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.Lock()
+	defer rf.Unlock()
 
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
 	// rf.ValidRpcReceived = true
@@ -245,16 +259,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	if args.Term > rf.CurrentTerm {
+	if rf.VotedFor == -1 || rf.VotedFor == args.CandidateID {
 		reply.VoteGranted = true
 		rf.VotedFor = args.CandidateID
 		return
 	}
 
-	if rf.VotedFor == -1 || rf.VotedFor == args.CandidateID {
-		reply.VoteGranted = true
-		rf.VotedFor = args.CandidateID
-		return
+	if args.Term > rf.CurrentTerm {
+		rf.CurrentTerm = args.Term
 	}
 
 	reply.VoteGranted = false
@@ -300,8 +312,8 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 	log.Printf("%v receive reply: %v", rf, reply)
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.Lock()
+	defer rf.Unlock()
 
 	if reply.Term > rf.CurrentTerm {
 		rf.CurrentTerm = reply.Term
@@ -312,29 +324,46 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.Lock()
+	defer rf.Unlock()
 
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
 
 	if args.Term < rf.CurrentTerm {
 		reply.Success = false
+		reply.Term = rf.CurrentTerm
 		return
 	}
 
-	rf.Log = append(rf.Log, args.Entries...)
-
 	rf.CurrentTerm = args.Term
+
+	rf.ValidRpcReceived = true
+	rf.VotedFor = -1
+	rf.VoteCount = 0
+	rf.ConvertToFollower()
 
 	reply.Success = true
 	reply.Term = rf.CurrentTerm
 
-	rf.ValidRpcReceived = true
+	if len(args.Entries) < 1 {
+		reply.Success = true
+		return
+	}
 
-	rf.VotedFor = -1
-	rf.VoteCount = 0
-
-	rf.ConvertToFollower()
+	rf.CommitIndex++
+	for _, e := range args.Entries {
+		rf.Log = append(rf.Log, e)
+		c, err := strconv.Atoi(e.Command)
+		if err != nil {
+			panic(err)
+		}
+		am := ApplyMsg{
+			CommandValid: true,
+			Command:      c,
+			CommandIndex: rf.CommitIndex,
+		}
+		rf.ApplyCH <- am
+	}
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -342,8 +371,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.Lock()
+	defer rf.Unlock()
 
 	// log
 	LogRPC(rf.me, server, RPCKindHeartbeat, args, reply)
@@ -365,11 +394,24 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	log.Printf("match index: %v", rf.MatchIndex)
 	log.Printf("rf attr: %v", StructToString(rf))
 
-	if getMaxCommited(rf.MatchIndex) > args.PrevLogIndex {
+	if getMaxCommited(rf.MatchIndex) > rf.CommitIndex {
 		// commit success
-		rf.CommitIndex++
-		if rf.CommitIndex > rf.LastApplied {
-			rf.LastApplied++
+		for _, e := range args.Entries {
+			rf.CommitIndex++
+			if rf.CommitIndex > rf.LastApplied {
+				rf.LastApplied++
+			}
+			rf.Log = append(rf.Log, e)
+			c, err := strconv.Atoi(e.Command)
+			if err != nil {
+				panic(err)
+			}
+			am := ApplyMsg{
+				CommandValid: true,
+				Command:      c,
+				CommandIndex: rf.CommitIndex,
+			}
+			rf.ApplyCH <- am
 		}
 	}
 
@@ -377,24 +419,6 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 }
 
 func (rf *Raft) ConvertToLeader() {
-	// if debugLock {
-	// 	log.Printf("%v going to acquire lock", rf)
-	// }
-	// rf.mu.Lock()
-	// if debugLock {
-	// 	log.Printf("%v acquire lock success", rf)
-	// }
-
-	// defer func() {
-	// 	if debugLock {
-	// 		log.Printf("%v going to release lock", rf)
-	// 	}
-	// 	rf.mu.Unlock()
-	// 	if debugLock {
-	// 		log.Printf("%v release lock success", rf)
-	// 	}
-	// }()
-
 	// log
 	LogRoleChange(rf.me, rf.Role, "leader")
 
@@ -404,25 +428,6 @@ func (rf *Raft) ConvertToLeader() {
 }
 
 func (rf *Raft) ConvertToCandidate() {
-	// if debugLock {
-	// 	log.Printf("%v going to acquire lock", rf)
-	// }
-	// rf.mu.Lock()
-	// if debugLock {
-	// 	log.Printf("%v acquire lock success", rf)
-	// }
-
-	// defer func() {
-	// 	if debugLock {
-	// 		log.Printf("%v going to release lock", rf)
-	// 	}
-	// 	rf.mu.Unlock()
-	// 	if debugLock {
-	// 		log.Printf("%v release lock success", rf)
-	// 	}
-	// }()
-
-	// log
 	LogRoleChange(rf.me, rf.Role, RoleCandidate)
 	rf.Role = RoleCandidate
 
@@ -461,8 +466,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	_, b := rf.GetState()
 
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
+	rf.Lock()
+	defer rf.Unlock()
+
 	if !b {
 		return index, term, b
 	}
@@ -509,10 +515,10 @@ func (rf *Raft) Kill() {
 
 func (rf *Raft) StartElection() {
 	// Check if candidating should go on
-	rf.mu.Lock()
+	rf.Lock()
 
 	if rf.Role == "leader" {
-		rf.mu.Unlock()
+		rf.Unlock()
 		return
 	}
 
@@ -524,37 +530,22 @@ func (rf *Raft) StartElection() {
 		LastLogIndex: rf.CommitIndex,
 	}
 
-	rf.mu.Unlock()
+	rf.Unlock()
 
 	for i := range rf.peers {
 		if i == rf.me {
-			rf.mu.Lock()
+			rf.Lock()
 			rf.VoteCount++
 			rf.VotedFor = i
-			rf.mu.Unlock()
+			rf.Unlock()
 			continue
 		}
 		go func(i int) {
 			reply := RequestVoteReply{}
 			rf.sendRequestVote(i, &args, &reply)
 
-			if debugLock {
-				log.Printf("%v going to acquire lock", rf)
-			}
-			rf.mu.Lock()
-			if debugLock {
-				log.Printf("%v acquire lock success", rf)
-			}
-
-			defer func() {
-				if debugLock {
-					log.Printf("%v going to release lock", rf)
-				}
-				rf.mu.Unlock()
-				if debugLock {
-					log.Printf("%v release lock success", rf)
-				}
-			}()
+			rf.Lock()
+			defer rf.Unlock()
 
 			if reply.VoteGranted {
 				rf.VoteCount++
@@ -572,44 +563,20 @@ func (rf *Raft) StartElection() {
 
 func (rf *Raft) Loop() {
 	for {
-		if debugLock {
-			log.Printf("%v going to acquire lock", rf)
-		}
-		rf.mu.Lock()
-		if debugLock {
-			log.Printf("%v acquire lock success", rf)
-		}
+		rf.Lock()
 
 		rf.ValidRpcReceived = false
 
-		if debugLock {
-			log.Printf("%v going to release lock", rf)
-		}
-		rf.mu.Unlock()
-		if debugLock {
-			log.Printf("%v release lock success", rf)
-		}
+		rf.Unlock()
 
 		time.Sleep(rf.ElectionTimeout)
 
-		if debugLock {
-			log.Printf("%v going to acquire lock", rf)
-		}
-		rf.mu.Lock()
-		if debugLock {
-			log.Printf("%v acquire lock success", rf)
-		}
+		rf.Lock()
 
 		// log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
 		validRPCReceived := rf.ValidRpcReceived
 
-		if debugLock {
-			log.Printf("%v going to release lock", rf)
-		}
-		rf.mu.Unlock()
-		if debugLock {
-			log.Printf("%v release lock success", rf)
-		}
+		rf.Unlock()
 
 		if !validRPCReceived {
 			go rf.StartElection()
@@ -629,7 +596,7 @@ func (rf *Raft) LeaderAppendEntries() {
 }
 
 func (rf *Raft) SendHeartBeat() {
-	rf.mu.Lock()
+	rf.Lock()
 	for i := range rf.peers {
 		if i == rf.me {
 			continue
@@ -641,7 +608,7 @@ func (rf *Raft) SendHeartBeat() {
 		}
 		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 	}
-	rf.mu.Unlock()
+	rf.Unlock()
 }
 
 //
@@ -672,6 +639,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	for range peers {
 		rf.MatchIndex = append(rf.MatchIndex, 0)
 	}
+	rf.ApplyCH = applyCh
 	log.Printf("%v init", rf)
 	log.Printf("instance attr: %v", StructToString(rf))
 
@@ -687,7 +655,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	return rf
 }
 
-func getMaxCommited(l []int) int {
+func getMaxCommited(a []int) int {
+	l := make([]int, len(a))
+	copy(l, a)
 	sort.Ints(l)
 	mid := len(l) / 2
 	log.Printf("mid: %v, v: %v", mid, l[mid])
