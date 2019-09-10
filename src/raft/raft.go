@@ -54,6 +54,12 @@ type ApplyMsg struct {
 	CommandIndex int
 }
 
+type Entry struct {
+	Command string
+	Term    int
+	Index   int
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -69,7 +75,7 @@ type Raft struct {
 
 	CurrentTerm int
 	VotedFor    int
-	Log         []interface{}
+	Log         []Entry
 
 	CommitIndex int
 	LastApplied int
@@ -180,7 +186,7 @@ type AppendEntriesArgs struct {
 	LeaderID     int
 	PrevLogIndex int
 	PrevLogTerm  int
-	Entries      []interface{}
+	Entries      []Entry
 	LeaderCommit int
 }
 
@@ -265,6 +271,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.VotedFor = args.CandidateID
 		return
 	}
+
+	reply.VoteGranted = false
+	return
 }
 
 //
@@ -334,6 +343,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.Success = false
 		return
 	}
+
+	rf.Log = append(rf.Log, args.Entries...)
 
 	rf.CurrentTerm = args.Term
 
@@ -407,7 +418,7 @@ func (rf *Raft) ConvertToLeader() {
 	LogRoleChange(rf.me, rf.Role, "leader")
 
 	log.Printf("%v grant %v votes, candidate routine finished", rf, rf.VoteCount)
-	log.Printf("voters: %v", rf.Voters)
+	log.Printf("%v voters: %v", rf, rf.Voters)
 	rf.Role = RoleLeader
 }
 
@@ -485,6 +496,41 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	// Your code here (2B).
 
+	_, b := rf.GetState()
+
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if !b {
+		return index, term, b
+	}
+
+	isLeader = true
+	index = rf.CommitIndex + 1
+	term = rf.CurrentTerm
+
+	lastIndex := rf.CommitIndex
+	lastTerm := rf.Log[lastIndex].Term
+	entry := Entry{
+		Command: fmt.Sprint(command),
+		Term:    rf.CurrentTerm,
+		Index:   lastIndex + 1,
+	}
+	args := AppendEntriesArgs{
+		Term:         rf.CurrentTerm,
+		LeaderID:     rf.me,
+		PrevLogIndex: lastIndex,
+		PrevLogTerm:  lastTerm,
+		Entries:      []Entry{entry},
+		LeaderCommit: lastIndex + 1,
+	}
+	log.Printf("start a commit, entry: %v, args: %v", entry, args)
+	for i := range rf.peers {
+		if i == rf.me {
+			continue
+		}
+		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
+	}
+
 	return index, term, isLeader
 }
 
@@ -500,63 +546,29 @@ func (rf *Raft) Kill() {
 
 func (rf *Raft) StartElection() {
 	// Check if candidating should go on
-	if debugLock {
-		log.Printf("%v going to acquire lock", rf)
-	}
 	rf.mu.Lock()
-	if debugLock {
-		log.Printf("%v acquire lock success", rf)
-	}
 
 	if rf.Role == "leader" {
-
-		if debugLock {
-			log.Printf("%v going to release lock", rf)
-		}
 		rf.mu.Unlock()
-		if debugLock {
-			log.Printf("%v release lock success", rf)
-		}
-
 		return
 	}
 
 	rf.ConvertToCandidate()
-
-	if debugLock {
-		log.Printf("%v going to release lock", rf)
-	}
-	rf.mu.Unlock()
-	if debugLock {
-		log.Printf("%v release lock success", rf)
-	}
 
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
 		CandidateID:  rf.me,
 		LastLogIndex: rf.CommitIndex,
 	}
+
+	rf.mu.Unlock()
+
 	for i := range rf.peers {
 		if i == rf.me {
-			if debugLock {
-				log.Printf("%v going to acquire lock", rf)
-			}
 			rf.mu.Lock()
-			if debugLock {
-				log.Printf("%v acquire lock success", rf)
-			}
-
 			rf.VoteCount++
 			rf.VotedFor = i
-
-			if debugLock {
-				log.Printf("%v going to release lock", rf)
-			}
 			rf.mu.Unlock()
-			if debugLock {
-				log.Printf("%v release lock success", rf)
-			}
-
 			continue
 		}
 		go func(i int) {
@@ -689,8 +701,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 
-	rf.mu = sync.Mutex{}
-
+	rf.Log = []Entry{Entry{}}
 	rf.CurrentTerm = 0
 	rf.ElectionTimeout = time.Duration(RandomInt(150, 300)) * time.Millisecond
 	rf.Role = "follower"
