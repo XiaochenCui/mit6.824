@@ -624,7 +624,7 @@ func (rf *Raft) Loop() {
 			log.Printf("%v acquire lock success", rf)
 		}
 
-		log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
+		// log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
 		validRPCReceived := rf.ValidRpcReceived
 
 		if debugLock {
