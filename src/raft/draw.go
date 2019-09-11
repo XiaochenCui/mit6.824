@@ -21,6 +21,11 @@ const (
 )
 
 var (
+	RoleMap = map[int32]string{
+		LEADER: RoleLeader,
+		FOLLOWER: RoleFollower,
+		CANDIDATE: RoleCandidate,
+	}
 	// mu      = &sync.Mutex{}
 	created = false
 	f       *os.File

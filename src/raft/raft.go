@@ -18,22 +18,31 @@ package raft
 //
 
 import (
-	"runtime"
 	"fmt"
 	"labrpc"
 	"log"
+	"runtime"
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // import "bytes"
 // import "labgob"
 
+const (
+	LEADER    = int32(0)
+	FOLLOWER  = int32(1)
+	CANDIDATE = int32(2)
+)
+
 var (
-	debugLock = true
+	debugLock = false
+	// debugLock = true
 	// mu        = &sync.Mutex{}
+	heartBeatInterval = 80 * time.Millisecond
 )
 
 func init() {
@@ -86,12 +95,19 @@ type Raft struct {
 	NextIndex  []int
 	MatchIndex []int
 
-	Role             string // leader, follower, candidate
+	Role             int32
 	ElectionTimeout  time.Duration
 	VoteCount        int
 	Voters           []int
 	ValidRpcReceived bool
 	ApplyCH          chan ApplyMsg
+
+	Timeout         *time.Timer
+	TimeoutTicker   *time.Ticker
+	HeartBeat       *time.Timer
+	HeartBeatTicker *time.Ticker
+
+	ElectionSuccess chan bool
 }
 
 func (rf *Raft) Lock() {
@@ -129,7 +145,7 @@ func (rf *Raft) GetState() (int, bool) {
 	defer rf.Unlock()
 
 	term = rf.CurrentTerm
-	if rf.Role == "leader" {
+	if rf.Role == LEADER {
 		isleader = true
 	}
 
@@ -326,7 +342,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.Lock()
 	defer rf.Unlock()
-
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
 
 	if args.Term < rf.CurrentTerm {
@@ -340,6 +355,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.ValidRpcReceived = true
 	rf.VotedFor = -1
 	rf.VoteCount = 0
+
+	rf.ResetTimeout("append entry")
+
 	rf.ConvertToFollower()
 
 	reply.Success = true
@@ -367,7 +385,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	log.Printf("%v send %v to [%v]", rf, args, server)
+	if atomic.LoadInt32(&rf.Role) != LEADER {
+		return false
+	}
+
+	rf.Lock()
+	log.Printf("%v send %v to [%v], rf attr: %v", rf, args, server, StructToString(rf))
+	rf.Unlock()
 
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 
@@ -419,17 +443,16 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 }
 
 func (rf *Raft) ConvertToLeader() {
-	// log
-	LogRoleChange(rf.me, rf.Role, "leader")
+	LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
 
-	log.Printf("%v grant %v votes, candidate routine finished", rf, rf.VoteCount)
-	log.Printf("%v voters: %v", rf, rf.Voters)
-	rf.Role = RoleLeader
+	log.Printf("%v grant %d votes from %v", rf, rf.VoteCount, rf.Voters)
+	atomic.StoreInt32(&rf.Role, LEADER)
 }
 
 func (rf *Raft) ConvertToCandidate() {
-	LogRoleChange(rf.me, rf.Role, RoleCandidate)
-	rf.Role = RoleCandidate
+	LogRoleChange(rf.me, RoleMap[rf.Role], RoleCandidate)
+
+	atomic.StoreInt32(&rf.Role, CANDIDATE)
 
 	rf.CurrentTerm++
 	rf.VoteCount = 0
@@ -438,8 +461,13 @@ func (rf *Raft) ConvertToCandidate() {
 }
 
 func (rf *Raft) ConvertToFollower() {
-	LogRoleChange(rf.me, rf.Role, RoleFollower)
-	rf.Role = RoleFollower
+	// rf.Lock()
+	// defer rf.Unlock()
+
+	LogRoleChange(rf.me, RoleMap[rf.Role], RoleFollower)
+
+	atomic.StoreInt32(&rf.Role, FOLLOWER)
+
 	log.Printf("%v convert to follower, attr: %v", rf, StructToString(rf))
 }
 
@@ -513,30 +541,13 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 }
 
-func (rf *Raft) StartElection() {
-	// Check if candidating should go on
+func (rf *Raft) NewElection() {
 	rf.Lock()
-
-	if rf.Role == "leader" {
-		rf.Unlock()
-		return
-	}
-
-	// rf.ConvertToCandidate()
-	LogRoleChange(rf.me, rf.Role, RoleCandidate)
-	rf.Role = RoleCandidate
-
-	rf.CurrentTerm++
-	rf.VoteCount = 0
-
-	log.Printf("%v convert to candidate, attr: %v", rf, StructToString(rf))
-
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
 		CandidateID:  rf.me,
 		LastLogIndex: rf.CommitIndex,
 	}
-
 	rf.Unlock()
 
 	for i := range rf.peers {
@@ -551,71 +562,87 @@ func (rf *Raft) StartElection() {
 			reply := RequestVoteReply{}
 			rf.sendRequestVote(i, &args, &reply)
 
-			rf.Lock()
-			defer rf.Unlock()
-
 			if reply.VoteGranted {
+				rf.Lock()
 				rf.VoteCount++
 				rf.Voters = append(rf.Voters, i)
 
 				if rf.VoteCount > len(rf.peers)/2 {
 					rf.ConvertToLeader()
-					go rf.SendHeartBeat()
-					return
+
+					defer func() {
+						go rf.SendHeartBeat()
+						rf.ElectionSuccess <- true
+					}()
 				}
+				rf.Unlock()
 			}
 		}(i)
 	}
 }
 
-func (rf *Raft) Loop() {
-	for {
-		rf.Lock()
-
-		rf.ValidRpcReceived = false
-
-		rf.Unlock()
-
-		time.Sleep(rf.ElectionTimeout)
-
-		rf.Lock()
-
-		// log.Printf("%v loop start, attr: %v", rf, StructToString(rf))
-		validRPCReceived := rf.ValidRpcReceived
-
-		rf.Unlock()
-
-		if !validRPCReceived {
-			go rf.StartElection()
-		}
+func (rf *Raft) ResetTimeout(reason string) {
+	log.Printf("%v reset timeout, reason: %v", rf, reason)
+	rf.Timeout.Stop()
+	select {
+	case <-rf.Timeout.C:
+	default:
 	}
+	rf.Timeout.Reset(rf.ElectionTimeout)
+	// rf.Timeout = time.NewTimer(rf.ElectionTimeout)
 }
 
-func (rf *Raft) LeaderAppendEntries() {
+func (rf *Raft) Loop() {
+	loopIndex := 0
 	for {
-		_, b := rf.GetState()
-		// log.Printf("%v [leader: %v] ready to send append entries rpc", rf, b)
-		if b {
-			go rf.SendHeartBeat()
+		loopIndex++
+		log.Printf("loop %v, %v start loop, role: %s", loopIndex, rf, RoleMap[atomic.LoadInt32(&rf.Role)])
+		switch atomic.LoadInt32(&rf.Role) {
+		case LEADER:
+			t := <-rf.HeartBeatTicker.C
+			log.Printf("loop %v, %v heart beat tick at %v", loopIndex, rf, t)
+			rf.SendHeartBeat()
+		case FOLLOWER:
+			rf.Lock()
+			rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
+			rf.Unlock()
+			t := <-rf.Timeout.C
+			log.Printf("loop %v, %v election timeout at %v", loopIndex, rf, t)
+			rf.Lock()
+			rf.ConvertToCandidate()
+			log.Printf("loop %v, %v convert to candidate", loopIndex, rf)
+			rf.Unlock()
+		case CANDIDATE:
+			rf.NewElection()
+			rf.Lock()
+			rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
+			rf.Unlock()
+			select {
+			case <-rf.ElectionSuccess:
+			case <-rf.Timeout.C:
+			}
 		}
-		time.Sleep(80 * time.Millisecond)
 	}
 }
 
 func (rf *Raft) SendHeartBeat() {
 	rf.Lock()
-	for i := range rf.peers {
-		if i == rf.me {
+	peers := rf.peers
+	me := rf.me
+	currentTerm := rf.CurrentTerm
+	rf.Unlock()
+
+	for i := range peers {
+		if i == me {
 			continue
 		}
 
 		args := AppendEntriesArgs{
-			Term:     rf.CurrentTerm,
-			LeaderID: rf.me,
+			Term:     currentTerm,
+			LeaderID: me,
 		}
 		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 	}
-	rf.Unlock()
 }
 
 //
@@ -641,12 +668,20 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.Log = []Entry{Entry{}}
 	rf.CurrentTerm = 0
 	rf.ElectionTimeout = time.Duration(RandomInt(150, 300)) * time.Millisecond
-	rf.Role = "follower"
+	rf.Role = FOLLOWER
 	rf.VotedFor = -1
 	for range peers {
 		rf.MatchIndex = append(rf.MatchIndex, 0)
 	}
 	rf.ApplyCH = applyCh
+
+	rf.Timeout = time.NewTimer(rf.ElectionTimeout)
+	rf.TimeoutTicker = time.NewTicker(rf.ElectionTimeout)
+	rf.HeartBeat = time.NewTimer(heartBeatInterval)
+	rf.HeartBeatTicker = time.NewTicker(heartBeatInterval)
+
+	rf.ElectionSuccess = make(chan bool)
+
 	log.Printf("%v init", rf)
 	log.Printf("instance attr: %v", StructToString(rf))
 
@@ -657,7 +692,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	LogRunnerStart(rf.me)
 
 	go rf.Loop()
-	go rf.LeaderAppendEntries()
+	// go rf.LeaderAppendEntries()
 
 	return rf
 }
