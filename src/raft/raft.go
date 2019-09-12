@@ -260,6 +260,10 @@ func (rf *Raft) String() string {
 	return fmt.Sprintf("raft instance %d", rf.me)
 }
 
+func (rf *Raft) GetRole() int32 {
+	return atomic.LoadInt32(&rf.Role)
+}
+
 //
 // example RequestVote RPC handler.
 //
@@ -275,14 +279,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
+	if args.Term > rf.CurrentTerm {
+		reply.VoteGranted = true
+		reply.Term = rf.CurrentTerm
+		return
+	}
+
 	if rf.VotedFor == -1 || rf.VotedFor == args.CandidateID {
 		reply.VoteGranted = true
 		rf.VotedFor = args.CandidateID
 		return
-	}
-
-	if args.Term > rf.CurrentTerm {
-		rf.CurrentTerm = args.Term
 	}
 
 	reply.VoteGranted = false
@@ -354,7 +360,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	rf.ValidRpcReceived = true
 	rf.VotedFor = -1
-	rf.VoteCount = 0
+	rf.Voters = rf.Voters[:0]
 
 	rf.ResetTimeout("append entry")
 
@@ -445,7 +451,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 func (rf *Raft) ConvertToLeader() {
 	LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
 
-	log.Printf("%v grant %d votes from %v", rf, rf.VoteCount, rf.Voters)
+	log.Printf("%v grant %d votes from %v", rf, len(rf.Voters), rf.Voters)
 	atomic.StoreInt32(&rf.Role, LEADER)
 }
 
@@ -453,9 +459,6 @@ func (rf *Raft) ConvertToCandidate() {
 	LogRoleChange(rf.me, RoleMap[rf.Role], RoleCandidate)
 
 	atomic.StoreInt32(&rf.Role, CANDIDATE)
-
-	rf.CurrentTerm++
-	rf.VoteCount = 0
 
 	log.Printf("%v convert to candidate, attr: %v", rf, StructToString(rf))
 }
@@ -543,6 +546,10 @@ func (rf *Raft) Kill() {
 
 func (rf *Raft) NewElection() {
 	rf.Lock()
+	rf.Voters = append(rf.Voters, rf.me)
+	rf.VotedFor = rf.me
+	rf.CurrentTerm++
+
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
 		CandidateID:  rf.me,
@@ -552,10 +559,6 @@ func (rf *Raft) NewElection() {
 
 	for i := range rf.peers {
 		if i == rf.me {
-			rf.Lock()
-			rf.VoteCount++
-			rf.VotedFor = i
-			rf.Unlock()
 			continue
 		}
 		go func(i int) {
@@ -564,18 +567,24 @@ func (rf *Raft) NewElection() {
 
 			if reply.VoteGranted {
 				rf.Lock()
-				rf.VoteCount++
 				rf.Voters = append(rf.Voters, i)
-
-				if rf.VoteCount > len(rf.peers)/2 {
-					rf.ConvertToLeader()
-
-					defer func() {
-						go rf.SendHeartBeat()
-						rf.ElectionSuccess <- true
-					}()
+				electionSuccess := false
+				if len(rf.Voters) > len(rf.peers)/2 {
+					electionSuccess = true
 				}
 				rf.Unlock()
+
+				if electionSuccess {
+					if rf.GetRole() == LEADER {
+						return
+					}
+
+					rf.Lock()
+					rf.ConvertToLeader()
+					rf.Unlock()
+					go rf.SendHeartBeat()
+					rf.ElectionSuccess <- true
+				}
 			}
 		}(i)
 	}
@@ -599,8 +608,9 @@ func (rf *Raft) Loop() {
 		log.Printf("loop %v, %v start loop, role: %s", loopIndex, rf, RoleMap[atomic.LoadInt32(&rf.Role)])
 		switch atomic.LoadInt32(&rf.Role) {
 		case LEADER:
-			t := <-rf.HeartBeatTicker.C
-			log.Printf("loop %v, %v heart beat tick at %v", loopIndex, rf, t)
+			// t := <-rf.HeartBeatTicker.C
+			// log.Printf("loop %v, %v heart beat tick at %v", loopIndex, rf, t)
+			time.Sleep(heartBeatInterval)
 			rf.SendHeartBeat()
 		case FOLLOWER:
 			rf.Lock()
@@ -614,6 +624,12 @@ func (rf *Raft) Loop() {
 			rf.Unlock()
 		case CANDIDATE:
 			rf.NewElection()
+
+			// rf.Lock()
+			// timeout := rf.ElectionTimeout
+			// rf.Unlock()
+			// time.Sleep(timeout)
+
 			rf.Lock()
 			rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
 			rf.Unlock()
