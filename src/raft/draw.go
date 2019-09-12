@@ -18,6 +18,7 @@ const (
 
 	RPCKindHeartbeat   = "heart-beat"
 	RPCKindRequestVote = "request-vote"
+	RPCKindAppendEntry = "append-entry"
 )
 
 var (

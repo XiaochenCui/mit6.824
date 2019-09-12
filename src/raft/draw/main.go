@@ -222,6 +222,9 @@ func Drawing() {
 
 			case raft.RPCKindRequestVote:
 				DrawArrow("#fe8a71", y, start, end, 0)
+
+			case raft.RPCKindAppendEntry:
+				DrawArrow("#6497b1", y, start, end, 0)
 			}
 
 		case "role change":
