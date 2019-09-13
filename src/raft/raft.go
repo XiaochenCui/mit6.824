@@ -579,21 +579,20 @@ func (rf *Raft) NewElection() {
 
 			if reply.VoteGranted {
 				rf.Lock()
+				log.Printf("%v grant %d votes from %v", rf, len(rf.Voters), rf.Voters)
 				rf.Voters = append(rf.Voters, i)
+
 				electionSuccess := false
-				if len(rf.Voters) > len(rf.peers)/2 {
-					electionSuccess = true
+				if atomic.LoadInt32(&rf.Role) != LEADER {
+					if len(rf.Voters) > len(rf.peers)/2 {
+						electionSuccess = true
+						LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
+						atomic.StoreInt32(&rf.Role, LEADER)
+					}
 				}
 				rf.Unlock()
 
 				if electionSuccess {
-					if rf.GetRole() == LEADER {
-						return
-					}
-
-					rf.Lock()
-					rf.ConvertToLeader()
-					rf.Unlock()
 					go rf.SendHeartBeat()
 					rf.ElectionSuccess <- true
 				}
