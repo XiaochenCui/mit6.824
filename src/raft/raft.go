@@ -562,7 +562,7 @@ func (rf *Raft) NewElection() {
 	rf.Lock()
 	rf.Voters = []int{rf.me}
 	rf.VotedFor = rf.me
-	// rf.CurrentTerm++
+	rf.CurrentTerm++
 
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
@@ -590,7 +590,6 @@ func (rf *Raft) NewElection() {
 						electionSuccess = true
 						LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
 						atomic.StoreInt32(&rf.Role, LEADER)
-						rf.CurrentTerm++
 					}
 				}
 				rf.Unlock()
