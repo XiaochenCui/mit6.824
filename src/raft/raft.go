@@ -374,8 +374,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	rf.CommitIndex++
 	for _, e := range args.Entries {
+		rf.CommitIndex++
 		rf.Log = append(rf.Log, e)
 		c, err := strconv.Atoi(e.Command)
 		if err != nil {
@@ -388,6 +388,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 		rf.ApplyCH <- am
 	}
+
+	log.Printf("%v append entries finished, attr: %v", rf, StructToString(rf))
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -560,7 +562,7 @@ func (rf *Raft) NewElection() {
 	rf.Lock()
 	rf.Voters = []int{rf.me}
 	rf.VotedFor = rf.me
-	rf.CurrentTerm++
+	// rf.CurrentTerm++
 
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
@@ -588,6 +590,7 @@ func (rf *Raft) NewElection() {
 						electionSuccess = true
 						LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
 						atomic.StoreInt32(&rf.Role, LEADER)
+						rf.CurrentTerm++
 					}
 				}
 				rf.Unlock()
