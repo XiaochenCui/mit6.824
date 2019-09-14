@@ -420,10 +420,13 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		return false
 	}
 
-	log.Printf("%v to %v, origin args: %v, rf attr: %v", rf, server, args, StructToString(rf))
-
 	rf.Lock()
+	log.Printf("%v to %v, origin args: %v, rf attr: %v", rf, server, args, StructToString(rf))
 	nextIndex := rf.NextIndex[server]
+	prevLog := rf.Log[nextIndex-1]
+	args.PrevLogIndex = prevLog.Index
+	args.PrevLogTerm = prevLog.Term
+
 	if nextIndex <= rf.CommitIndex {
 		startIndex := rf.NextIndex[server]
 		endIndex := rf.CommitIndex + 1
@@ -431,7 +434,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		missingLogs := rf.Log[startIndex:endIndex]
 		args.Entries = append(missingLogs, args.Entries...)
 
-		prevLog := rf.Log[nextIndex - 1]
+		prevLog := rf.Log[nextIndex-1]
 		args.PrevLogIndex = prevLog.Index
 		args.PrevLogTerm = prevLog.Term
 	}
@@ -457,7 +460,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	}
 	if !ok {
 		if reply.Term != 0 {
-		rf.NextIndex[server]--
+			rf.NextIndex[server]--
 		}
 		return ok
 	}
@@ -499,13 +502,13 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 func (rf *Raft) ConvertToLeader() {
 	LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
 
-	log.Printf("%v grant %d votes from %v", rf, len(rf.Voters), rf.Voters)
+	log.Printf("%v become leader, grant %d votes from %v", rf, len(rf.Voters), rf.Voters)
 	atomic.StoreInt32(&rf.Role, LEADER)
 	rf.VotedFor = -1
 
-	for range rf.peers {
-		rf.NextIndex = append(rf.NextIndex, rf.CommitIndex+1)
-		rf.MatchIndex = append(rf.MatchIndex, 0)
+	for i := range rf.peers {
+		rf.NextIndex[i] = rf.CommitIndex+1
+		rf.MatchIndex[i] = 0
 	}
 }
 
@@ -630,8 +633,9 @@ func (rf *Raft) NewElection() {
 				if atomic.LoadInt32(&rf.Role) != LEADER {
 					if len(rf.Voters) > len(rf.peers)/2 {
 						electionSuccess = true
-						LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
-						atomic.StoreInt32(&rf.Role, LEADER)
+						// LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
+						// atomic.StoreInt32(&rf.Role, LEADER)
+						rf.ConvertToLeader()
 					}
 				}
 				rf.Unlock()
