@@ -423,7 +423,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	rf.Lock()
 	log.Printf("%v to %v, origin args: %v, rf attr: %v", rf, server, args, StructToString(rf))
 	nextIndex := rf.NextIndex[server]
-	prevLog := rf.Log[nextIndex-1]
+	prevLog := rf.Log[rf.CommitIndex]
 	args.PrevLogIndex = prevLog.Index
 	args.PrevLogTerm = prevLog.Term
 
