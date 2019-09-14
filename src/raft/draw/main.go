@@ -24,7 +24,7 @@ var (
 	leftBlank  = float64(300)
 	arrowRatio = float64(10)
 
-	lineWidth = float64(3)
+	lineWidth = float64(1.5)
 
 	runnerXMap = make(map[int]float64)
 
@@ -43,7 +43,15 @@ var (
 	H int
 
 	runner []int
+
+	stringQueue []String
 )
+
+type String struct {
+	s string
+	x float64
+	y float64
+}
 
 type Interval struct {
 	Start time.Time
@@ -255,6 +263,31 @@ func Drawing() {
 			}
 			dc.DrawString(s, x+10, y)
 
+		case "term up":
+			rc := raft.TermUp{}
+			err := json.Unmarshal([]byte(msg), &rc)
+			if err != nil {
+				panic(err)
+			}
+
+			if rc.Before == rc.After {
+				continue
+			}
+
+			y := TimeToY(t)
+			x := runnerXMap[rc.ID]
+
+			// log.Printf("id: %v, x: %v", id, x)
+			dc.SetHexColor("#fed766")
+			dc.DrawPoint(x, y, 7)
+			dc.Fill()
+			dc.Stroke()
+
+			s := fmt.Sprintf("term up: %d -> %d", rc.Before, rc.After)
+			y += 12
+			x += 15
+			dc.DrawString(s, x+10, y)
+
 		case "connect":
 			y := TimeToY(t)
 			id, _ := strconv.Atoi(msg)
@@ -284,6 +317,11 @@ func Drawing() {
 	}
 
 	DrawTimeSeries(baseTime, endTime)
+
+	// draw strings
+	// for _, s := range stringQueue {
+	// 	dc.Draw
+	// }
 
 	dc.SetRGBA(50, 50, 50, 1)
 	dc.SetHexColor("#4a4e4d")
@@ -345,7 +383,7 @@ func DrawArrow(color string, y, start, end float64, fixLineWidth float64) {
 	}
 
 	widthBuf := float64(len(runnerXMap)) - math.Abs(start-end)/interval
-	width := lineWidth + widthBuf*2.5
+	width := lineWidth + widthBuf*2
 	dc.SetLineWidth(width)
 
 	if fixLineWidth > 0 {
@@ -383,6 +421,15 @@ func DrawTimeSeries(base, end time.Time) {
 
 		base = base.Add(200 * time.Millisecond)
 	}
+}
+
+func DrawString(s string, x, y float64){
+	se := String{
+		s: s,
+		x: x,
+		y: y,
+	}
+	stringQueue = append(stringQueue, se)
 }
 
 func contains(s []int, e int) bool {

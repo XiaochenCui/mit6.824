@@ -285,7 +285,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	if args.Term >= rf.CurrentTerm {
+	if args.Term > rf.CurrentTerm {
 		rf.ConvertToFollower()
 		rf.CurrentTerm = args.Term
 		rf.VotedFor = -1
@@ -343,7 +343,9 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 
 	// log
-	LogRPC(rf.me, server, RPCKindRequestVote, args, reply)
+	if ok {
+		LogRPC(rf.me, server, RPCKindRequestVote, args, reply)
+	}
 
 	log.Printf("%v receive reply: %v", rf, reply)
 
@@ -369,6 +371,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	rf.CurrentTerm = args.Term
+
+	rf.ValidRpcReceived <- true
+	rf.VotedFor = -1
+	rf.Voters = rf.Voters[:0]
+	rf.ConvertToFollower()
+
 	if args.PrevLogIndex > rf.CommitIndex {
 		return
 	}
@@ -377,17 +386,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if prevLog.Term != args.PrevLogTerm {
 		return
 	}
-
-	rf.CurrentTerm = args.Term
-
-	rf.ValidRpcReceived <- true
-	// rf.ValidAppendEntryReceived <- true
-	rf.VotedFor = -1
-	rf.Voters = rf.Voters[:0]
-
-	// rf.ResetTimeout("append entry")
-
-	rf.ConvertToFollower()
 
 	reply.Success = true
 	reply.Term = rf.CurrentTerm
@@ -447,10 +445,12 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	defer rf.Unlock()
 
 	// log
-	if len(args.Entries) < 1 {
-		LogRPC(rf.me, server, RPCKindHeartbeat, args, reply)
-	} else {
-		LogRPC(rf.me, server, RPCKindAppendEntry, args, reply)
+	if ok {
+		if len(args.Entries) < 1 {
+			LogRPC(rf.me, server, RPCKindHeartbeat, args, reply)
+		} else {
+			LogRPC(rf.me, server, RPCKindAppendEntry, args, reply)
+		}
 	}
 
 	log.Printf("[ok: %v]%v get return value: %v", ok, rf, reply)
@@ -459,7 +459,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		rf.ConvertToFollower()
 	}
 	if !ok {
-		if reply.Term != 0 {
+		return ok
+	}
+
+	if !reply.Success {
+		if rf.NextIndex[server] > 1 {
 			rf.NextIndex[server]--
 		}
 		return ok
@@ -469,7 +473,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		return ok
 	}
 
-	rf.MatchIndex[server]++
+	lastLog := args.Entries[len(args.Entries)-1]
+	rf.MatchIndex[server] = lastLog.Index
 	rf.NextIndex[server] += len(args.Entries)
 	log.Printf("match index: %v", rf.MatchIndex)
 	log.Printf("next index: %v", rf.NextIndex)
@@ -507,7 +512,7 @@ func (rf *Raft) ConvertToLeader() {
 	rf.VotedFor = -1
 
 	for i := range rf.peers {
-		rf.NextIndex[i] = rf.CommitIndex+1
+		rf.NextIndex[i] = rf.CommitIndex + 1
 		rf.MatchIndex[i] = 0
 	}
 }
@@ -601,6 +606,9 @@ func (rf *Raft) Kill() {
 
 func (rf *Raft) NewElection() {
 	rf.Lock()
+
+	LogTermUp(rf.me, rf.CurrentTerm, rf.CurrentTerm+1)
+
 	rf.Voters = []int{rf.me}
 	rf.VotedFor = rf.me
 	rf.CurrentTerm++

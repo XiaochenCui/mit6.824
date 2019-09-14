@@ -59,6 +59,12 @@ type RoleChange struct {
 	After  string
 }
 
+type TermUp struct {
+	ID     int
+	Before int
+	After  int
+}
+
 func Drawing() {
 	dc := gg.NewContext(1000, 1000)
 	dc.DrawCircle(500, 500, 400)
@@ -120,6 +126,16 @@ func LogRoleChange(id int, before, after string) {
 	}
 	b, _ := json.Marshal(r)
 	LogEvent("role change", string(b))
+}
+
+func LogTermUp(id int, before, after int) {
+	r := TermUp{
+		ID:     id,
+		Before: before,
+		After:  after,
+	}
+	b, _ := json.Marshal(r)
+	LogEvent("term up", string(b))
 }
 
 func LogConnect(id int) {
