@@ -95,12 +95,15 @@ type Raft struct {
 	NextIndex  []int
 	MatchIndex []int
 
-	Role             int32
-	ElectionTimeout  time.Duration
-	VoteCount        int
-	Voters           []int
-	ValidRpcReceived bool
-	ApplyCH          chan ApplyMsg
+	Role            int32
+	ElectionTimeout time.Duration
+	VoteCount       int
+	Voters          []int
+
+	// A server remains in follower state as long as it receives valid RPCs from a leader or candidate
+	ValidRpcReceived chan bool
+
+	ApplyCH chan ApplyMsg
 
 	Timeout         *time.Timer
 	TimeoutTicker   *time.Ticker
@@ -108,6 +111,8 @@ type Raft struct {
 	HeartBeatTicker *time.Ticker
 
 	ElectionSuccess chan bool
+	RoleChanged     chan bool
+	// ValidAppendEntryReceived chan bool
 }
 
 func (rf *Raft) Lock() {
@@ -276,18 +281,24 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// rf.ValidRpcReceived = true
 	if args.Term < rf.CurrentTerm {
 		reply.VoteGranted = false
-		return
-	}
-
-	if args.Term > rf.CurrentTerm {
-		reply.VoteGranted = true
 		reply.Term = rf.CurrentTerm
 		return
 	}
 
+	if args.Term > rf.CurrentTerm {
+		reply.Term = rf.CurrentTerm
+		rf.ConvertToFollower()
+		rf.VotedFor = -1
+	}
+
 	if rf.VotedFor == -1 || rf.VotedFor == args.CandidateID {
-		reply.VoteGranted = true
-		rf.VotedFor = args.CandidateID
+		lastLog := rf.Log[rf.CommitIndex]
+		if args.LastLogTerm >= lastLog.Term && args.LastLogIndex >= lastLog.Index {
+			rf.ConvertToFollower()
+			reply.VoteGranted = true
+			rf.VotedFor = args.CandidateID
+			rf.ValidRpcReceived <- true
+		}
 		return
 	}
 
@@ -358,11 +369,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	rf.CurrentTerm = args.Term
 
-	rf.ValidRpcReceived = true
+	rf.ValidRpcReceived <- true
+	// rf.ValidAppendEntryReceived <- true
 	rf.VotedFor = -1
 	rf.Voters = rf.Voters[:0]
 
-	rf.ResetTimeout("append entry")
+	// rf.ResetTimeout("append entry")
 
 	rf.ConvertToFollower()
 
@@ -467,6 +479,7 @@ func (rf *Raft) ConvertToLeader() {
 
 	log.Printf("%v grant %d votes from %v", rf, len(rf.Voters), rf.Voters)
 	atomic.StoreInt32(&rf.Role, LEADER)
+	rf.VotedFor = -1
 }
 
 func (rf *Raft) ConvertToCandidate() {
@@ -478,14 +491,12 @@ func (rf *Raft) ConvertToCandidate() {
 }
 
 func (rf *Raft) ConvertToFollower() {
-	// rf.Lock()
-	// defer rf.Unlock()
-
 	LogRoleChange(rf.me, RoleMap[rf.Role], RoleFollower)
 
 	atomic.StoreInt32(&rf.Role, FOLLOWER)
 
 	log.Printf("%v convert to follower, attr: %v", rf, StructToString(rf))
+	// rf.VotedFor = -1
 }
 
 //
@@ -621,34 +632,37 @@ func (rf *Raft) Loop() {
 		log.Printf("loop %v, %v start loop, role: %s", loopIndex, rf, RoleMap[atomic.LoadInt32(&rf.Role)])
 		switch atomic.LoadInt32(&rf.Role) {
 		case LEADER:
-			// t := <-rf.HeartBeatTicker.C
-			// log.Printf("loop %v, %v heart beat tick at %v", loopIndex, rf, t)
-			time.Sleep(heartBeatInterval)
-			rf.SendHeartBeat()
+			select {
+			case <-time.After(heartBeatInterval):
+				rf.SendHeartBeat()
+			case <-rf.RoleChanged:
+				continue
+			}
 		case FOLLOWER:
-			rf.Lock()
-			rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
-			rf.Unlock()
-			t := <-rf.Timeout.C
-			log.Printf("loop %v, %v election timeout at %v", loopIndex, rf, t)
-			rf.Lock()
-			rf.ConvertToCandidate()
-			log.Printf("loop %v, %v convert to candidate", loopIndex, rf)
-			rf.Unlock()
+			// rf.Lock()
+			// rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
+			// rf.Unlock()
+
+			select {
+			case <-time.After(rf.ElectionTimeout):
+				rf.Lock()
+				rf.ConvertToCandidate()
+				log.Printf("loop %v, %v convert to candidate", loopIndex, rf)
+				rf.Unlock()
+			case <-rf.ValidRpcReceived:
+				continue
+			}
+
 		case CANDIDATE:
 			rf.NewElection()
 
 			// rf.Lock()
-			// timeout := rf.ElectionTimeout
+			// rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
 			// rf.Unlock()
-			// time.Sleep(timeout)
-
-			rf.Lock()
-			rf.ResetTimeout(fmt.Sprintf("main loop %d", loopIndex))
-			rf.Unlock()
 			select {
 			case <-rf.ElectionSuccess:
-			case <-rf.Timeout.C:
+			case <-rf.ValidRpcReceived:
+			case <-time.After(rf.ElectionTimeout):
 			}
 		}
 	}
@@ -722,7 +736,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.HeartBeat = time.NewTimer(heartBeatInterval)
 	rf.HeartBeatTicker = time.NewTicker(heartBeatInterval)
 
-	rf.ElectionSuccess = make(chan bool)
+	rf.ElectionSuccess = make(chan bool, 1)
+	rf.RoleChanged = make(chan bool, 1)
+	rf.ValidRpcReceived = make(chan bool, 1)
 
 	log.Printf("%v init", rf)
 	log.Printf("instance attr: %v", StructToString(rf))
