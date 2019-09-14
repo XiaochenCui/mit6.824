@@ -285,14 +285,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	if args.Term > rf.CurrentTerm {
-		reply.Term = rf.CurrentTerm
+	if args.Term >= rf.CurrentTerm {
 		rf.ConvertToFollower()
+		rf.CurrentTerm = args.Term
 		rf.VotedFor = -1
+		reply.Term = rf.CurrentTerm
 	}
 
 	if rf.VotedFor == -1 || rf.VotedFor == args.CandidateID {
 		lastLog := rf.Log[rf.CommitIndex]
+		log.Printf("%v last log: %v", rf, StructToString(lastLog))
 		if args.LastLogTerm >= lastLog.Term && args.LastLogIndex >= lastLog.Index {
 			rf.ConvertToFollower()
 			reply.VoteGranted = true
@@ -361,9 +363,18 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer rf.Unlock()
 	log.Printf("%v receive %v, rf attr: %v", rf, args, StructToString(rf))
 
+	reply.Term = rf.CurrentTerm
+	reply.Success = false
 	if args.Term < rf.CurrentTerm {
-		reply.Success = false
-		reply.Term = rf.CurrentTerm
+		return
+	}
+
+	if args.PrevLogIndex > rf.CommitIndex {
+		return
+	}
+
+	prevLog := rf.Log[args.PrevLogIndex]
+	if prevLog.Term != args.PrevLogTerm {
 		return
 	}
 
@@ -409,14 +420,22 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		return false
 	}
 
+	log.Printf("%v to %v, origin args: %v, rf attr: %v", rf, server, args, StructToString(rf))
+
 	rf.Lock()
-	if rf.MatchIndex[server] < rf.CommitIndex {
+	nextIndex := rf.NextIndex[server]
+	if nextIndex <= rf.CommitIndex {
 		startIndex := rf.NextIndex[server]
 		endIndex := rf.CommitIndex + 1
 		log.Printf("peer: %v, start index: %v, end index: %v, match index: %v, next index: %v", server, startIndex, endIndex, rf.MatchIndex, rf.NextIndex)
-		args.Entries = append(rf.Log[startIndex:endIndex], args.Entries...)
+		missingLogs := rf.Log[startIndex:endIndex]
+		args.Entries = append(missingLogs, args.Entries...)
+
+		prevLog := rf.Log[nextIndex - 1]
+		args.PrevLogIndex = prevLog.Index
+		args.PrevLogTerm = prevLog.Term
 	}
-	log.Printf("%v send %v to [%v], rf attr: %v", rf, args, server, StructToString(rf))
+	log.Printf("%v to %v, updated args: %v, rf attr: %v", rf, server, args, StructToString(rf))
 	rf.Unlock()
 
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
@@ -437,6 +456,9 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		rf.ConvertToFollower()
 	}
 	if !ok {
+		if reply.Term != 0 {
+		rf.NextIndex[server]--
+		}
 		return ok
 	}
 
@@ -480,6 +502,11 @@ func (rf *Raft) ConvertToLeader() {
 	log.Printf("%v grant %d votes from %v", rf, len(rf.Voters), rf.Voters)
 	atomic.StoreInt32(&rf.Role, LEADER)
 	rf.VotedFor = -1
+
+	for range rf.peers {
+		rf.NextIndex = append(rf.NextIndex, rf.CommitIndex+1)
+		rf.MatchIndex = append(rf.MatchIndex, 0)
+	}
 }
 
 func (rf *Raft) ConvertToCandidate() {
@@ -575,10 +602,14 @@ func (rf *Raft) NewElection() {
 	rf.VotedFor = rf.me
 	rf.CurrentTerm++
 
+	lastLog := rf.Log[rf.CommitIndex]
+	log.Printf("%v last log: %v", rf, StructToString(lastLog))
+
 	args := RequestVoteArgs{
 		Term:         rf.CurrentTerm,
 		CandidateID:  rf.me,
-		LastLogIndex: rf.CommitIndex,
+		LastLogIndex: lastLog.Index,
+		LastLogTerm:  lastLog.Term,
 	}
 	rf.Unlock()
 
@@ -636,6 +667,8 @@ func (rf *Raft) Loop() {
 			case <-time.After(heartBeatInterval):
 				rf.SendHeartBeat()
 			case <-rf.RoleChanged:
+				continue
+			case <-rf.ValidRpcReceived:
 				continue
 			}
 		case FOLLOWER:
@@ -721,7 +754,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (2A, 2B, 2C).
 
 	rf.Log = []Entry{Entry{}}
-	rf.CurrentTerm = 0
+	rf.CurrentTerm = 1
 	rf.ElectionTimeout = time.Duration(RandomInt(150, 300)) * time.Millisecond
 	rf.Role = FOLLOWER
 	rf.VotedFor = -1
