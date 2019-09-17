@@ -179,7 +179,10 @@ func LogEvent(name string, content string) {
 
 	end := time.Now()
 	consume := end.Sub(t)
-	log.Printf("log consume %v seconds", consume.Seconds())
+	// log.Printf("log consume %v seconds", consume.Seconds())
+	if consume.Seconds() > 0.001 {
+		panic(consume)
+	}
 }
 
 func Writer() {

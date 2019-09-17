@@ -382,7 +382,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	if len(rf.Log) < args.PrevLogIndex {
+	if len(rf.Log) != args.PrevLogIndex+1 {
 		return
 	}
 	prevLog := rf.Log[args.PrevLogIndex]
