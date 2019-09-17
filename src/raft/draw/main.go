@@ -106,7 +106,6 @@ func ReadLog() {
 }
 
 func Preprocess() {
-
 	intervalsMap := make(map[int][]Interval)
 	for _, line := range logContent {
 		t, header, msg := ParseLine(line)
@@ -134,13 +133,11 @@ func Preprocess() {
 			intervalsMap[id] = append(is, Interval{Start: t})
 		}
 	}
-	// log.Panic(intervalsMap)
 
 	baseTime = baseTime.Truncate(200 * time.Millisecond)
 	endTime = endTime.Add(1 * time.Second)
 
 	interval = float64(900 / (len(runner) - 1))
-	// log.Panic(runner)
 	for i, id := range runner {
 		x := leftBlank + float64(i)*interval
 		runnerXMap[id] = float64(x)
@@ -153,16 +150,11 @@ func Preprocess() {
 	log.Print(TimeToY(endTime))
 	log.Print(H)
 
-	// H = int(TimeToY(endTime)) + 50
-	// log.Print(endTime)
 	log.Print(TimeToY(endTime))
-	// log.Panic(H)
 
 	// drawing init
 	dc = gg.NewContext(W, H)
-	// dc.SetRGB255(0, 0, 0)
 	dc.SetRGB255(255, 255, 255)
-	// dc.SetRGB255(50, 50, 50)
 	dc.Clear()
 
 	font, err := truetype.Parse(gomono.TTF)
@@ -173,7 +165,6 @@ func Preprocess() {
 	face := truetype.NewFace(font, &truetype.Options{Size: 16})
 	dc.SetFontFace(face)
 
-	// log.Panicf("interval map: %v", intervalsMap)
 	for id, intervals := range intervalsMap {
 		x := runnerXMap[id]
 		if len(intervals) == 1 {
@@ -211,7 +202,6 @@ func Preprocess() {
 func Drawing() {
 	for _, line := range logContent {
 		t, header, msg := ParseLine(line)
-		// log.Print(t, header, msg)
 
 		switch header {
 		case "system start":
@@ -271,7 +261,6 @@ func Drawing() {
 			y := TimeToY(t)
 			x := runnerXMap[rc.ID]
 
-			// log.Printf("id: %v, x: %v", id, x)
 			dc.SetHexColor("#f37736")
 			dc.DrawPoint(x, y, 7)
 			dc.Fill()
@@ -306,8 +295,6 @@ func Drawing() {
 			dc.Stroke()
 
 			s := fmt.Sprintf("term up: %d -> %d", rc.Before, rc.After)
-			y += 12
-			x += 15
 			DrawString(s, x+10, y, "#fed766")
 
 		case "connect":
@@ -364,11 +351,6 @@ func TimeToY(t time.Time) float64 {
 	ms := float64(diff.Nanoseconds()) / math.Pow10(6)
 	offset := float64(35)
 	return ms + offset + margin
-
-	// tUnix := float64(t.UnixNano())
-	// ratio := float64(tUnix-baseTimeUnix) / float64(endTimeUnix-baseTimeUnix)
-	// r := 35 + float64(H-70)*ratio
-	// return r
 }
 
 func DrawArrow(color string, y, start, end float64, fixLineWidth float64) {
