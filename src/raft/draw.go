@@ -3,11 +3,14 @@ package raft
 import "github.com/fogleman/gg"
 import "time"
 import (
+	// "bytes"
+	// "net/http"
 	"encoding/json"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"os"
 	// "sync"
+	"github.com/go-redis/redis"
 )
 
 const (
@@ -31,6 +34,8 @@ var (
 	created = false
 	f       *os.File
 	msgChan = make(chan string, 10)
+
+	redisClient *redis.Client
 )
 
 type Runner struct {
@@ -92,6 +97,10 @@ func InitLogEvent() {
 	}
 
 	go Writer()
+
+	redisClient = redis.NewClient(&redis.Options{
+		Password:    "root",
+	})
 }
 
 func LogSystemStart() {
@@ -146,13 +155,31 @@ func LogDisconnect(id int) {
 	LogEvent("disconnect", fmt.Sprintf("%v", id))
 }
 
+// func LogEvent(name string, content string) {
+// 	go logEvent(name, content)
+// }
+
 func LogEvent(name string, content string) {
 	t := time.Now()
 	var s string
 	s += t.Format(time.RFC3339Nano)
-	// s += t.String()
 	s += "$$" + name + "$$" + content + "\n"
+
+	// 1, local write
 	msgChan <- s
+
+	// 2, http
+	// _, err := http.Post("http://localhost:60000", "text/plain", bytes.NewBuffer([]byte(s)))
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	// 3, redis
+	// redisClient.HSet("log", "1", s)
+
+	end := time.Now()
+	consume := end.Sub(t)
+	log.Printf("log consume %v seconds", consume.Seconds())
 }
 
 func Writer() {
@@ -165,9 +192,9 @@ func Writer() {
 		if n != len(s) {
 			log.Fatalf("n: %v, length of s: %v", n, len(s))
 		}
-		err = f.Sync()
-		if err != nil {
-			panic(err)
-		}
+		// err = f.Sync()
+		// if err != nil {
+		// 	panic(err)
+		// }
 	}
 }

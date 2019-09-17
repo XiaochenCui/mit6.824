@@ -338,7 +338,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // the struct itself.
 //
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	log.Printf("%v send %v to [%v]", rf, args, server)
+	log.Printf("%v send RequestVote to [%v], args: %v", rf, server, args)
 
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 
@@ -347,7 +347,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 		LogRPC(rf.me, server, RPCKindRequestVote, args, reply)
 	}
 
-	log.Printf("%v receive reply: %v", rf, reply)
+	log.Printf("[ok: %v]%v get RequestVote from %v, reply: %v", ok, rf, server, reply)
 
 	rf.Lock()
 	defer rf.Unlock()
@@ -382,6 +382,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
+	if len(rf.Log) < args.PrevLogIndex {
+		return
+	}
 	prevLog := rf.Log[args.PrevLogIndex]
 	if prevLog.Term != args.PrevLogTerm {
 		return
@@ -397,6 +400,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	for _, e := range args.Entries {
 		rf.CommitIndex++
+		if prevLog.Index >= e.Index {
+			break
+		}
 		rf.Log = append(rf.Log, e)
 		c, err := strconv.Atoi(e.Command)
 		if err != nil {
@@ -436,7 +442,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		args.PrevLogIndex = prevLog.Index
 		args.PrevLogTerm = prevLog.Term
 	}
-	log.Printf("%v to %v, updated args: %v, rf attr: %v", rf, server, args, StructToString(rf))
+	log.Printf("%v send AppendEntry to %v, updated args: %v, rf attr: %v", rf, server, args, StructToString(rf))
 	rf.Unlock()
 
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
@@ -453,7 +459,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 		}
 	}
 
-	log.Printf("[ok: %v]%v get return value: %v", ok, rf, reply)
+	log.Printf("[ok: %v]%v get AppendEntry from %v, reply: %v", ok, rf, server, reply)
 	if reply.Term > rf.CurrentTerm {
 		rf.CurrentTerm = reply.Term
 		rf.ConvertToFollower()
@@ -531,7 +537,6 @@ func (rf *Raft) ConvertToFollower() {
 	atomic.StoreInt32(&rf.Role, FOLLOWER)
 
 	log.Printf("%v convert to follower, attr: %v", rf, StructToString(rf))
-	// rf.VotedFor = -1
 }
 
 //
@@ -606,6 +611,11 @@ func (rf *Raft) Kill() {
 
 func (rf *Raft) NewElection() {
 	rf.Lock()
+
+	if rf.Role != CANDIDATE {
+		rf.Unlock()
+		return
+	}
 
 	LogTermUp(rf.me, rf.CurrentTerm, rf.CurrentTerm+1)
 

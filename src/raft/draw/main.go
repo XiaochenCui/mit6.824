@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/ioutil"
 	"bufio"
 	"bytes"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"net/http"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -81,6 +83,8 @@ func initFont() {
 }
 
 func main() {
+	// serve()
+
 	ReadLog()
 	Preprocess()
 
@@ -88,6 +92,15 @@ func main() {
 
 	RenderingString()
 	save()
+}
+
+func serve() {
+	http.HandleFunc("/", func (w http.ResponseWriter, r *http.Request) {
+		body, _ := ioutil.ReadAll(r.Body)
+		log.Print(string(body))
+    })
+
+    http.ListenAndServe(":60000", nil)
 }
 
 func ReadLog() {
