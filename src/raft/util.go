@@ -83,6 +83,21 @@ func MapToString(m interface{}) string {
 	return r
 }
 
+func MapGet(m interface{}, k string) interface{} {
+	v := reflect.ValueOf(m)
+	if v.Kind() != reflect.Map {
+		panic(v.Kind())
+	}
+	for _, key := range v.MapKeys() {
+		s := key.String()
+		if s == k {
+			value := v.MapIndex(key)
+			return value
+		}
+	}
+	return nil
+}
+
 func RandomInt(min, max int) int {
 	return rand.Intn(max-min) + min
 }

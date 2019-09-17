@@ -1,19 +1,21 @@
 package main
 
 import (
-	"io/ioutil"
 	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	// "github.com/fatih/structs"
+	"io/ioutil"
 	"log"
 	"math"
+	"net/http"
 	"os"
 	"raft"
 	"sort"
 	"strconv"
 	"time"
-	"net/http"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -95,12 +97,12 @@ func main() {
 }
 
 func serve() {
-	http.HandleFunc("/", func (w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := ioutil.ReadAll(r.Body)
 		log.Print(string(body))
-    })
+	})
 
-    http.ListenAndServe(":60000", nil)
+	http.ListenAndServe(":60000", nil)
 }
 
 func ReadLog() {
@@ -258,6 +260,10 @@ func Drawing() {
 
 			case raft.RPCKindAppendEntry:
 				DrawArrow("#6497b1", y, start, end, 0)
+				es := raft.MapGet(rpc.Args, "Entries")
+				log.Print(es)
+				log.Printf("%t")
+				panic(nil)
 			}
 
 		case "role change":
