@@ -382,9 +382,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	if len(rf.Log) != args.PrevLogIndex+1 {
+	if len(rf.Log) < args.PrevLogIndex+1 {
 		return
 	}
+
 	prevLog := rf.Log[args.PrevLogIndex]
 	if prevLog.Term != args.PrevLogTerm {
 		return
@@ -400,8 +401,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	for _, e := range args.Entries {
 		rf.CommitIndex++
-		if prevLog.Index >= e.Index {
-			break
+
+		if e.Index != rf.CommitIndex {
+			continue
 		}
 		rf.Log = append(rf.Log, e)
 		c, err := strconv.Atoi(e.Command)
