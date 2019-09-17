@@ -9,11 +9,13 @@ import (
 	"math"
 	"os"
 	"raft"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
+	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gomono"
 )
 
@@ -39,18 +41,23 @@ var (
 	logContent []string
 
 	// image size
-	W = 1524
+	W = 1424
 	H int
+
+	margin = float64(30)
 
 	runner []int
 
 	stringQueue []String
+
+	narmalFace font.Face
 )
 
 type String struct {
-	s string
-	x float64
-	y float64
+	S     string
+	X     float64
+	Y     float64
+	Color string
 }
 
 type Interval struct {
@@ -60,12 +67,27 @@ type Interval struct {
 
 func init() {
 	log.SetOutput(os.Stdout)
+
+	initFont()
+}
+
+func initFont() {
+	f, err := truetype.Parse(gomono.TTF)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	narmalFace = truetype.NewFace(f, &truetype.Options{Size: 16})
 }
 
 func main() {
 	ReadLog()
 	Preprocess()
+
 	Drawing()
+
+	RenderingString()
+	save()
 }
 
 func ReadLog() {
@@ -205,7 +227,7 @@ func Drawing() {
 			dc.Stroke()
 
 			s := fmt.Sprintf("runner %d started", id)
-			dc.DrawString(s, x+10, y)
+			DrawString(s, x+10, y, "#0e9aa7")
 
 		case "rpc":
 			rpc := raft.RPC{}
@@ -222,7 +244,7 @@ func Drawing() {
 			end := runnerXMap[rpc.Receiver]
 
 			// x := (start + end) / 2 - 100
-			// dc.DrawString(raft.MapToString(rpc.Args), y, x)
+			// DrawString(raft.MapToString(rpc.Args), y, x)
 
 			switch rpc.Kind {
 			case raft.RPCKindHeartbeat:
@@ -261,7 +283,7 @@ func Drawing() {
 			} else {
 				y -= 2
 			}
-			dc.DrawString(s, x+10, y)
+			DrawString(s, x+10, y, "#f37736")
 
 		case "term up":
 			rc := raft.TermUp{}
@@ -286,7 +308,7 @@ func Drawing() {
 			s := fmt.Sprintf("term up: %d -> %d", rc.Before, rc.After)
 			y += 12
 			x += 15
-			dc.DrawString(s, x+10, y)
+			DrawString(s, x+10, y, "#fed766")
 
 		case "connect":
 			y := TimeToY(t)
@@ -299,7 +321,7 @@ func Drawing() {
 			dc.Stroke()
 
 			s := fmt.Sprintf("%d connected", id)
-			dc.DrawString(s, x+10, y)
+			DrawString(s, x+10, y, "#7bc043")
 
 		case "disconnect":
 			y := TimeToY(t)
@@ -312,39 +334,18 @@ func Drawing() {
 			dc.Stroke()
 
 			s := fmt.Sprintf("%d disconnected", id)
-			dc.DrawString(s, x+10, y)
+			DrawString(s, x+10, y, "#ee4035")
 		}
 	}
 
 	DrawTimeSeries(baseTime, endTime)
 
-	// draw strings
-	// for _, s := range stringQueue {
-	// 	dc.Draw
-	// }
-
 	dc.SetRGBA(50, 50, 50, 1)
 	dc.SetHexColor("#4a4e4d")
 	dc.SetLineWidth(10)
-	dc.DrawLine(20, 15, 1000, 15)
+	dc.DrawLine(margin, margin, float64(W)-margin, margin)
 	dc.Stroke()
 
-	// for i := 0; i < 1000; i++ {
-	// 	x1 := rand.Float64() * W
-	// 	y1 := rand.Float64() * H
-	// 	x2 := rand.Float64() * W
-	// 	y2 := rand.Float64() * H
-	// 	r := rand.Float64()
-	// 	g := rand.Float64()
-	// 	b := rand.Float64()
-	// 	a := rand.Float64()*0.5 + 0.5
-	// 	w := rand.Float64()*4 + 1
-	// 	dc.SetRGBA(r, g, b, a)
-	// 	dc.SetLineWidth(w)
-	// 	dc.DrawLine(x1, y1, x2, y2)
-	// 	dc.Stroke()
-	// }
-	dc.SavePNG("out.png")
 }
 
 func ParseLine(s string) (time.Time, string, string) {
@@ -362,7 +363,7 @@ func TimeToY(t time.Time) float64 {
 	diff := t.Sub(baseTime)
 	ms := float64(diff.Nanoseconds()) / math.Pow10(6)
 	offset := float64(35)
-	return ms + offset
+	return ms + offset + margin
 
 	// tUnix := float64(t.UnixNano())
 	// ratio := float64(tUnix-baseTimeUnix) / float64(endTimeUnix-baseTimeUnix)
@@ -417,19 +418,50 @@ func DrawTimeSeries(base, end time.Time) {
 
 		y := TimeToY(base)
 		log.Print(y)
-		dc.DrawString(s, 160, y)
+		DrawString(s, 160, y, "#ff6f69")
 
 		base = base.Add(200 * time.Millisecond)
 	}
 }
 
-func DrawString(s string, x, y float64){
+func DrawString(s string, x, y float64, color string) {
 	se := String{
-		s: s,
-		x: x,
-		y: y,
+		S:     s,
+		X:     x,
+		Y:     y,
+		Color: color,
 	}
 	stringQueue = append(stringQueue, se)
+}
+
+func RenderingString() {
+	log.Print(stringQueue)
+	sort.Slice(stringQueue, func(i, j int) bool { return stringQueue[i].Y < stringQueue[j].Y })
+
+	m := make(map[float64][]String)
+	for _, se := range stringQueue {
+		l := m[se.X]
+		lastY := float64(0)
+		if len(l) > 0 {
+			lastY = l[len(l)-1].Y
+		}
+		if se.Y-lastY < 20 {
+			se.Y = lastY + 20
+		}
+		m[se.X] = append(m[se.X], se)
+	}
+	for k, v := range m {
+		log.Print()
+		log.Print(k)
+		log.Print(v)
+	}
+	log.Print(m)
+	for _, v := range m {
+		for _, se := range v {
+			dc.SetHexColor(se.Color)
+			dc.DrawString(se.S, se.X, se.Y)
+		}
+	}
 }
 
 func contains(s []int, e int) bool {
@@ -439,4 +471,8 @@ func contains(s []int, e int) bool {
 		}
 	}
 	return false
+}
+
+func save() {
+	dc.SavePNG("out.png")
 }
