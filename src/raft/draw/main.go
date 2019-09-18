@@ -328,7 +328,7 @@ func Drawing() {
 			// dc.Stroke()
 
 			s := fmt.Sprintf("%s: %v -> %v", ac.Name, ac.Before, ac.After)
-			DrawString(s, x+10, y, "#6497b1")
+			DrawString(s, x+10, y, "#f37736")
 
 		case "connect":
 			y := TimeToY(t)

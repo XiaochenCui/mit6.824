@@ -405,8 +405,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.Log = append(rf.Log, e)
 	}
 
-	if rf.CommitIndex > args.LeaderCommit+len(args.Entries) {
-		rf.UpdateCommitIndex(args.LeaderCommit + len(args.Entries))
+	if rf.CommitIndex > args.LeaderCommit+1{
+		rf.UpdateCommitIndex(args.LeaderCommit + 1)
 	}
 
 	if rf.LastApplied < rf.CommitIndex {
