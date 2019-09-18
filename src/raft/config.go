@@ -181,6 +181,7 @@ func (cfg *config) start1(i int) {
 					}
 				}
 				_, prevok := cfg.logs[i][m.CommandIndex-1]
+				log.Printf("commit log on %v.%v:%v", i, m.CommandIndex, v)
 				cfg.logs[i][m.CommandIndex] = v
 				if m.CommandIndex > cfg.maxIndex {
 					cfg.maxIndex = m.CommandIndex
