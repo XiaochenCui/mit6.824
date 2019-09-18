@@ -98,6 +98,29 @@ func MapGet(m interface{}, k string) interface{} {
 	return nil
 }
 
+func GetSlice(container interface{}) []interface{} {
+	var result []interface{}
+	s := reflect.ValueOf(container)
+	switch s.Kind() {
+	case reflect.Slice:
+		for i := 0; i < s.Len(); i++ {
+			result = append(result, s.Index(i))
+		}
+	case reflect.Struct:
+		s := structs.New(s)
+		m := s.Map()
+		log.Print(m)
+		panic(m)
+		// for i := 0; i < s.Len(); i++ {
+		// 	result = append(result, s.Index(i))
+		// }
+	default:
+		panic(s.Kind())
+	}
+
+	return result
+}
+
 func RandomInt(min, max int) int {
 	return rand.Intn(max-min) + min
 }

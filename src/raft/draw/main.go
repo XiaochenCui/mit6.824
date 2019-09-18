@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"reflect"
+	// "reflect"
 	// "github.com/fatih/structs"
 	"io/ioutil"
 	"log"
@@ -211,7 +211,6 @@ func Preprocess() {
 			}
 		}
 	}
-
 }
 
 func Drawing() {
@@ -260,10 +259,6 @@ func Drawing() {
 
 			case raft.RPCKindAppendEntry:
 				DrawArrow("#6497b1", y, start, end, 0)
-				es := raft.MapGet(rpc.Args, "Entries")
-				log.Print(es)
-				log.Printf("%t")
-				panic(nil)
 			}
 
 		case "role change":
