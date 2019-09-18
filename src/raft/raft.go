@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"labrpc"
 	"log"
+	// "math"
 	"runtime"
 	"sort"
 	"strconv"
@@ -394,18 +395,27 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Success = true
 	reply.Term = rf.CurrentTerm
 
-	if len(args.Entries) < 1 {
-		reply.Success = true
-		return
-	}
-
 	for _, e := range args.Entries {
-		rf.CommitIndex++
+		// rf.CommitIndex++
+		rf.UpdateCommitIndex(rf.CommitIndex + 1)
 
 		if e.Index != rf.CommitIndex {
 			continue
 		}
 		rf.Log = append(rf.Log, e)
+	}
+
+	if rf.CommitIndex > args.LeaderCommit+len(args.Entries) {
+		rf.UpdateCommitIndex(args.LeaderCommit + len(args.Entries))
+	}
+
+	if rf.LastApplied < rf.CommitIndex {
+		log.Printf("%v going to apply logs, current: %v, aim: %v", rf, rf.LastApplied, rf.CommitIndex)
+	}
+
+	for rf.LastApplied < rf.CommitIndex {
+		i := rf.LastApplied + 1
+		e := rf.Log[i]
 		c, err := strconv.Atoi(e.Command)
 		if err != nil {
 			panic(err)
@@ -416,9 +426,13 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			CommandIndex: rf.CommitIndex,
 		}
 		rf.ApplyCH <- am
+
+		rf.LastApplied++
 	}
 
-	log.Printf("%v append entries finished, attr: %v", rf, StructToString(rf))
+	if len(args.Entries) > 0 {
+		log.Printf("%v append entries finished, attr: %v", rf, StructToString(rf))
+	}
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -432,6 +446,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	prevLog := rf.Log[rf.CommitIndex]
 	args.PrevLogIndex = prevLog.Index
 	args.PrevLogTerm = prevLog.Term
+	args.LeaderCommit = rf.CommitIndex
 
 	if nextIndex <= rf.CommitIndex {
 		startIndex := rf.NextIndex[server]
@@ -491,7 +506,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	if getMaxCommited(rf.MatchIndex) > rf.CommitIndex {
 		// commit success
 		for _, e := range args.Entries {
-			rf.CommitIndex++
+			// rf.CommitIndex++
+			rf.UpdateCommitIndex(rf.CommitIndex + 1)
 			if rf.CommitIndex > rf.LastApplied {
 				rf.LastApplied++
 			}
@@ -510,6 +526,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	}
 
 	return ok
+}
+
+func (rf *Raft) UpdateCommitIndex(i int) {
+	LogAttrChange(rf.me, "CommitIndex", rf.CommitIndex, i)
+	rf.CommitIndex = i
 }
 
 func (rf *Raft) ConvertToLeader() {

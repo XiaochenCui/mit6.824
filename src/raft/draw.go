@@ -26,8 +26,8 @@ const (
 
 var (
 	RoleMap = map[int32]string{
-		LEADER: RoleLeader,
-		FOLLOWER: RoleFollower,
+		LEADER:    RoleLeader,
+		FOLLOWER:  RoleFollower,
 		CANDIDATE: RoleCandidate,
 	}
 	// mu      = &sync.Mutex{}
@@ -70,6 +70,13 @@ type TermUp struct {
 	After  int
 }
 
+type AttrChange struct {
+	ID     int
+	Name   string
+	Before interface{}
+	After  interface{}
+}
+
 func Drawing() {
 	dc := gg.NewContext(1000, 1000)
 	dc.DrawCircle(500, 500, 400)
@@ -99,7 +106,7 @@ func InitLogEvent() {
 	go Writer()
 
 	redisClient = redis.NewClient(&redis.Options{
-		Password:    "root",
+		Password: "root",
 	})
 }
 
@@ -145,6 +152,17 @@ func LogTermUp(id int, before, after int) {
 	}
 	b, _ := json.Marshal(r)
 	LogEvent("term up", string(b))
+}
+
+func LogAttrChange(id int, name string, before, after interface{}) {
+	r := AttrChange{
+		ID:     id,
+		Name:   name,
+		Before: before,
+		After:  after,
+	}
+	b, _ := json.Marshal(r)
+	LogEvent("attr change", string(b))
 }
 
 func LogConnect(id int) {

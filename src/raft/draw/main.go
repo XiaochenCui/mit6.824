@@ -311,6 +311,25 @@ func Drawing() {
 			s := fmt.Sprintf("term up: %d -> %d", rc.Before, rc.After)
 			DrawString(s, x+10, y, "#fed766")
 
+		case "attr change":
+			ac := raft.AttrChange{}
+			err := json.Unmarshal([]byte(msg), &ac)
+			if err != nil {
+				panic(err)
+			}
+
+			y := TimeToY(t)
+			x := runnerXMap[ac.ID]
+
+			// log.Printf("id: %v, x: %v", id, x)
+			// dc.SetHexColor("#fed766")
+			// dc.DrawPoint(x, y, 7)
+			// dc.Fill()
+			// dc.Stroke()
+
+			s := fmt.Sprintf("%s: %v -> %v", ac.Name, ac.Before, ac.After)
+			DrawString(s, x+10, y, "#6497b1")
+
 		case "connect":
 			y := TimeToY(t)
 			id, _ := strconv.Atoi(msg)
