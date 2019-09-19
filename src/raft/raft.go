@@ -286,6 +286,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
+	rf.ValidRpcReceived <- true
+
 	if args.Term > rf.CurrentTerm {
 		rf.ConvertToFollower()
 		rf.CurrentTerm = args.Term
@@ -300,7 +302,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.ConvertToFollower()
 			reply.VoteGranted = true
 			rf.VotedFor = args.CandidateID
-			rf.ValidRpcReceived <- true
 		}
 		return
 	}
@@ -368,6 +369,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	reply.Term = rf.CurrentTerm
 	reply.Success = false
+
+	// Reply false if term < currentTerm
 	if args.Term < rf.CurrentTerm {
 		return
 	}
@@ -395,40 +398,47 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Success = true
 	reply.Term = rf.CurrentTerm
 
-	for _, e := range args.Entries {
-		// rf.CommitIndex++
-		rf.UpdateCommitIndex(rf.CommitIndex + 1)
+	// update commit index
+	rf.commitEntries(args.Entries)
+	// for _, e := range args.Entries {
+	// 	if len(rf.Log)-1 < e.Index {
+	// 		rf.Log = append(rf.Log, e)
 
-		if e.Index != rf.CommitIndex {
-			continue
-		}
-		rf.Log = append(rf.Log, e)
+	// 		// rf.CommitIndex++
+	// 		rf.UpdateCommitIndex(rf.CommitIndex + 1)
+	// 		continue
+	// 	}
+
+	// 	rf.Log[e.Index] = e
+	// }
+
+	applyTarget := rf.CommitIndex
+	if rf.CommitIndex > args.LeaderCommit {
+		applyTarget = args.LeaderCommit
 	}
 
-	if rf.CommitIndex > args.LeaderCommit+1{
-		rf.UpdateCommitIndex(args.LeaderCommit + 1)
+	if rf.LastApplied < applyTarget {
+		log.Printf("%v going to apply logs, current: %v, aim: %v", rf, rf.LastApplied, applyTarget)
+		rf.applyEntries(rf.LastApplied+1, applyTarget)
 	}
 
-	if rf.LastApplied < rf.CommitIndex {
-		log.Printf("%v going to apply logs, current: %v, aim: %v", rf, rf.LastApplied, rf.CommitIndex)
-	}
+	// for rf.LastApplied < applyTarget {
+	// 	i := rf.LastApplied + 1
+	// 	e := rf.Log[i]
+	// 	c, err := strconv.Atoi(e.Command)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// 	am := ApplyMsg{
+	// 		CommandValid: true,
+	// 		Command:      c,
+	// 		CommandIndex: e.Index,
+	// 	}
+	// 	log.Printf("%v apply entry : %v", rf, StructToString(am))
+	// 	rf.ApplyCH <- am
 
-	for rf.LastApplied < rf.CommitIndex {
-		i := rf.LastApplied + 1
-		e := rf.Log[i]
-		c, err := strconv.Atoi(e.Command)
-		if err != nil {
-			panic(err)
-		}
-		am := ApplyMsg{
-			CommandValid: true,
-			Command:      c,
-			CommandIndex: rf.CommitIndex,
-		}
-		rf.ApplyCH <- am
-
-		rf.LastApplied++
-	}
+	// 	rf.LastApplied++
+	// }
 
 	if len(args.Entries) > 0 {
 		log.Printf("%v append entries finished, attr: %v", rf, StructToString(rf))
@@ -503,29 +513,66 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	log.Printf("next index: %v", rf.NextIndex)
 	log.Printf("rf attr: %v", StructToString(rf))
 
-	if getMaxCommited(rf.MatchIndex) > rf.CommitIndex {
+	if getMaxCommited(rf.MatchIndex) > rf.LastApplied {
 		// commit success
-		for _, e := range args.Entries {
-			// rf.CommitIndex++
-			rf.UpdateCommitIndex(rf.CommitIndex + 1)
-			if rf.CommitIndex > rf.LastApplied {
-				rf.LastApplied++
-			}
-			rf.Log = append(rf.Log, e)
-			c, err := strconv.Atoi(e.Command)
-			if err != nil {
-				panic(err)
-			}
-			am := ApplyMsg{
-				CommandValid: true,
-				Command:      c,
-				CommandIndex: rf.CommitIndex,
-			}
-			rf.ApplyCH <- am
-		}
+		rf.applyEntries(rf.LastApplied+1, lastLog.Index)
+
+		// for _, e := range args.Entries {
+		// 	// rf.CommitIndex++
+		// 	rf.UpdateCommitIndex(rf.CommitIndex + 1)
+		// 	if rf.CommitIndex > rf.LastApplied {
+		// 		rf.LastApplied++
+		// 	}
+		// 	rf.Log = append(rf.Log, e)
+		// 	c, err := strconv.Atoi(e.Command)
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// 	am := ApplyMsg{
+		// 		CommandValid: true,
+		// 		Command:      c,
+		// 		CommandIndex: rf.CommitIndex,
+		// 	}
+		// 	rf.ApplyCH <- am
+		// }
 	}
 
 	return ok
+}
+
+func (rf *Raft) commitEntries(es []Entry) {
+	for _, e := range es {
+		if len(rf.Log)-1 < e.Index {
+			rf.Log = append(rf.Log, e)
+
+			// rf.CommitIndex++
+			rf.UpdateCommitIndex(rf.CommitIndex + 1)
+			continue
+		}
+
+		rf.Log[e.Index] = e
+	}
+}
+
+func (rf *Raft) applyEntries(start, end int) {
+	LogApply(rf.me, start, end)
+
+	for i := start; i <= end; i++ {
+		e := rf.Log[i]
+		c, err := strconv.Atoi(e.Command)
+		if err != nil {
+			panic(err)
+		}
+
+		am := ApplyMsg{
+			CommandValid: true,
+			Command:      c,
+			CommandIndex: e.Index,
+		}
+		log.Printf("%v apply entry : %v", rf, StructToString(am))
+		rf.ApplyCH <- am
+		rf.LastApplied++
+	}
 }
 
 func (rf *Raft) UpdateCommitIndex(i int) {
@@ -585,12 +632,12 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	_, b := rf.GetState()
 
-	rf.Lock()
-	defer rf.Unlock()
-
 	if !b {
 		return index, term, b
 	}
+
+	rf.Lock()
+	// defer rf.Unlock()
 
 	isLeader = true
 	index = rf.CommitIndex + 1
@@ -598,19 +645,31 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	lastIndex := rf.CommitIndex
 	lastTerm := rf.Log[lastIndex].Term
+	log.Printf("start a commit, command: %v, term: %v, index: %v", command, rf.CurrentTerm, lastIndex+1)
+	peers := rf.peers
+	me := rf.me
+
 	entry := Entry{
 		Command: fmt.Sprint(command),
-		Term:    rf.CurrentTerm,
+		Term:    term,
 		Index:   lastIndex + 1,
 	}
-	log.Printf("start a commit, entry: %v", entry)
-	for i := range rf.peers {
-		if i == rf.me {
+	rf.commitEntries([]Entry{entry})
+	rf.Unlock()
+
+	for i := range peers {
+		entry := Entry{
+			Command: fmt.Sprint(command),
+			Term:    term,
+			Index:   lastIndex + 1,
+		}
+
+		if i == me {
 			continue
 		}
 		args := AppendEntriesArgs{
-			Term:         rf.CurrentTerm,
-			LeaderID:     rf.me,
+			Term:         term,
+			LeaderID:     me,
 			PrevLogIndex: lastIndex,
 			PrevLogTerm:  lastTerm,
 			Entries:      []Entry{entry},

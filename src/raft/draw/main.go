@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"strings"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -106,7 +107,8 @@ func serve() {
 }
 
 func ReadLog() {
-	filename := "event.log"
+	// filename := "event.log"
+	filename := "out"
 	file, err := os.Open(filename)
 	defer file.Close()
 
@@ -116,8 +118,26 @@ func ReadLog() {
 
 	fileScanner := bufio.NewScanner(file)
 	for fileScanner.Scan() {
-		logContent = append(logContent, fileScanner.Text())
+		s := fileScanner.Text()
+		if len(s) < 1 {
+			continue
+		}
+		if string(s[0]) != "{" {
+			continue
+		}
+
+		logMap := make(map[string]string)
+		json.Unmarshal([]byte(s), &logMap)
+		log.Print(logMap)
+		log.Print(logMap["message"])
+		msg := strings.TrimSpace(logMap["message"])
+		// panic(nil)
+
+		logContent = append(logContent, msg)
+		// logContent = append(logContent, "\n")
 	}
+	log.Print(logContent)
+	// panic(nil)
 }
 
 func Preprocess() {
@@ -328,6 +348,18 @@ func Drawing() {
 			// dc.Stroke()
 
 			s := fmt.Sprintf("%s: %v -> %v", ac.Name, ac.Before, ac.After)
+			DrawString(s, x+10, y, "#f37736")
+
+		case "apply":
+			strArr := strings.Split(msg, ":")
+			id, _ := strconv.Atoi(strArr[0])
+			start, _ := strconv.Atoi(strArr[1])
+			end, _ := strconv.Atoi(strArr[1])
+
+			y := TimeToY(t)
+			x := runnerXMap[id]
+
+			s := fmt.Sprintf("%v apply log [%v...%v]", id, start, end)
 			DrawString(s, x+10, y, "#f37736")
 
 		case "connect":

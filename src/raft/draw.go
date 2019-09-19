@@ -7,7 +7,7 @@ import (
 	// "net/http"
 	"encoding/json"
 	"fmt"
-	log "github.com/sirupsen/logrus"
+	"github.com/rs/zerolog/log"
 	"os"
 	// "sync"
 	"github.com/go-redis/redis"
@@ -103,11 +103,7 @@ func InitLogEvent() {
 		panic(err)
 	}
 
-	go Writer()
-
-	redisClient = redis.NewClient(&redis.Options{
-		Password: "root",
-	})
+	// go Writer()
 }
 
 func LogSystemStart() {
@@ -173,6 +169,10 @@ func LogDisconnect(id int) {
 	LogEvent("disconnect", fmt.Sprintf("%v", id))
 }
 
+func LogApply(id int, start, end int) {
+	LogEvent("apply", fmt.Sprintf("%v:%v:%v", id, start, end))
+}
+
 // func LogEvent(name string, content string) {
 // 	go logEvent(name, content)
 // }
@@ -184,7 +184,8 @@ func LogEvent(name string, content string) {
 	s += "$$" + name + "$$" + content + "\n"
 
 	// 1, local write
-	msgChan <- s
+	// msgChan <- s
+	log.Print(s)
 
 	// 2, http
 	// _, err := http.Post("http://localhost:60000", "text/plain", bytes.NewBuffer([]byte(s)))
@@ -195,12 +196,12 @@ func LogEvent(name string, content string) {
 	// 3, redis
 	// redisClient.HSet("log", "1", s)
 
-	end := time.Now()
-	consume := end.Sub(t)
-	// log.Printf("log consume %v seconds", consume.Seconds())
-	if consume.Seconds() > 0.001 {
-		panic(consume)
-	}
+	// end := time.Now()
+	// consume := end.Sub(t)
+	// // log.Printf("log consume %v seconds", consume.Seconds())
+	// if consume.Seconds() > 0.001 {
+	// 	panic(consume)
+	// }
 }
 
 func Writer() {
@@ -211,7 +212,7 @@ func Writer() {
 			panic(err)
 		}
 		if n != len(s) {
-			log.Fatalf("n: %v, length of s: %v", n, len(s))
+			// log.Fatalf("n: %v, length of s: %v", n, len(s))
 		}
 		// err = f.Sync()
 		// if err != nil {
