@@ -24,7 +24,7 @@ import (
 	// "math"
 	// "github.com/huandu/goroutine"
 	// goroutine "github.com/huandu/go-tls"
-	"github.com/XiaochenCui/goroutine"
+	// "github.com/XiaochenCui/goroutine"
 	"runtime"
 	"sort"
 	"strconv"
@@ -291,8 +291,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	rf.ValidRpcReceived <- true
-
 	if args.Term > rf.CurrentTerm {
 		rf.ConvertToFollower()
 		rf.CurrentTerm = args.Term
@@ -304,6 +302,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLog := rf.Log[rf.CommitIndex]
 		log.Printf("%v last log: %v", rf, StructToString(lastLog))
 		if args.LastLogTerm >= lastLog.Term && args.LastLogIndex >= lastLog.Index {
+			rf.ValidRpcReceived <- true
+
 			rf.ConvertToFollower()
 			reply.VoteGranted = true
 			rf.VotedFor = args.CandidateID
@@ -405,6 +405,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// update commit index
 	rf.commitEntries(args.Entries)
+	if rf.CommitIndex < args.LeaderCommit {
+		rf.CommitIndex = args.LeaderCommit
+	}
 	// for _, e := range args.Entries {
 	// 	if len(rf.Log)-1 < e.Index {
 	// 		rf.Log = append(rf.Log, e)
@@ -469,6 +472,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	if reply.Term > rf.CurrentTerm {
 		rf.CurrentTerm = reply.Term
 		rf.ConvertToFollower()
+		rf.RoleChanged <- true
 	}
 	if !ok {
 		return ok
@@ -492,9 +496,11 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	log.Printf("next index: %v", rf.NextIndex)
 	log.Printf("rf attr: %v", StructToString(rf))
 
-	if getMaxCommited(rf.MatchIndex) > rf.LastApplied {
+	rf.CommitIndex = getMaxCommited(rf.MatchIndex)
+	if rf.CommitIndex > rf.LastApplied {
 		// commit success
-		rf.applyEntries(rf.LastApplied+1, lastLog.Index)
+		// rf.CommitIndex = rf.MatchIndex
+		rf.applyEntries(rf.LastApplied+1, rf.CommitIndex)
 
 		// for _, e := range args.Entries {
 		// 	// rf.CommitIndex++
@@ -813,6 +819,7 @@ func (rf *Raft) startAppendEntries() {
 		args.Entries = append(args.Entries, rf.Log[nextIndex:]...)
 
 		// emit
+		log.Printf("%v send AppendEntry to %v, args: %v, rf attr: %v", rf, i, StructToString(args), StructToString(rf))
 		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 	}
 }
