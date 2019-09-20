@@ -451,35 +451,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	goid := goroutine.CurGoroutineID()
-	log.Printf("[racedebug] goroutine %d start", goid)
-
-	if atomic.LoadInt32(&rf.Role) != LEADER {
-		return false
-	}
-
-	rf.Lock()
-	log.Printf("%v to %v, origin args: %v, rf attr: %v", rf, server, args, StructToString(rf))
-	nextIndex := rf.NextIndex[server]
-	prevLog := rf.Log[rf.CommitIndex]
-	args.PrevLogIndex = prevLog.Index
-	args.PrevLogTerm = prevLog.Term
-	args.LeaderCommit = rf.CommitIndex
-
-	if nextIndex <= rf.CommitIndex {
-		startIndex := rf.NextIndex[server]
-		endIndex := rf.CommitIndex + 1
-		log.Printf("peer: %v, start index: %v, end index: %v, match index: %v, next index: %v", server, startIndex, endIndex, rf.MatchIndex, rf.NextIndex)
-		missingLogs := rf.Log[startIndex:endIndex]
-		args.Entries = append(missingLogs, args.Entries...)
-
-		prevLog := rf.Log[nextIndex-1]
-		args.PrevLogIndex = prevLog.Index
-		args.PrevLogTerm = prevLog.Term
-	}
-	log.Printf("%v send AppendEntry to %v, updated args: %v, rf attr: %v", rf, server, args, StructToString(rf))
-	rf.Unlock()
-
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 
 	rf.Lock()
@@ -645,46 +616,47 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 
 	rf.Lock()
+	defer rf.Unlock()
 	// defer rf.Unlock()
 
 	isLeader = true
-	index = rf.CommitIndex + 1
+	index = len(rf.Log)
 	term = rf.CurrentTerm
 
-	lastIndex := rf.CommitIndex
-	lastTerm := rf.Log[lastIndex].Term
-	log.Printf("start a commit, command: %v, term: %v, index: %v", command, rf.CurrentTerm, lastIndex+1)
-	peers := rf.peers
-	me := rf.me
+	// lastIndex := rf.CommitIndex
+	// lastTerm := rf.Log[lastIndex].Term
+	log.Printf("start a commit, command: %v, term: %v, index: %v", command, rf.CurrentTerm, index)
 
 	entry := Entry{
 		Command: fmt.Sprint(command),
 		Term:    term,
-		Index:   lastIndex + 1,
+		Index:   index,
 	}
-	rf.commitEntries([]Entry{entry})
-	rf.Unlock()
+	rf.Log = append(rf.Log, entry)
 
-	for i := range peers {
-		entry := Entry{
-			Command: fmt.Sprint(command),
-			Term:    term,
-			Index:   lastIndex + 1,
-		}
+	// rf.commitEntries([]Entry{entry})
+	// rf.Unlock()
 
-		if i == me {
-			continue
-		}
-		args := AppendEntriesArgs{
-			Term:         term,
-			LeaderID:     me,
-			PrevLogIndex: lastIndex,
-			PrevLogTerm:  lastTerm,
-			Entries:      []Entry{entry},
-			LeaderCommit: lastIndex + 1,
-		}
-		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
-	}
+	// for i := range peers {
+	// 	entry := Entry{
+	// 		Command: fmt.Sprint(command),
+	// 		Term:    term,
+	// 		Index:   lastIndex + 1,
+	// 	}
+
+	// 	if i == me {
+	// 		continue
+	// 	}
+	// 	args := AppendEntriesArgs{
+	// 		Term:         term,
+	// 		LeaderID:     me,
+	// 		PrevLogIndex: lastIndex,
+	// 		PrevLogTerm:  lastTerm,
+	// 		Entries:      []Entry{entry},
+	// 		LeaderCommit: lastIndex + 1,
+	// 	}
+	// 	go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
+	// }
 
 	return index, term, isLeader
 }
@@ -749,7 +721,7 @@ func (rf *Raft) NewElection() {
 				rf.Unlock()
 
 				if electionSuccess {
-					go rf.SendHeartBeat()
+					go rf.startAppendEntries()
 					rf.ElectionSuccess <- true
 				}
 			}
@@ -768,7 +740,7 @@ func (rf *Raft) ResetTimeout(reason string) {
 	// rf.Timeout = time.NewTimer(rf.ElectionTimeout)
 }
 
-func (rf *Raft) Loop() {
+func (rf *Raft) loop() {
 	loopIndex := 0
 	for {
 		loopIndex++
@@ -777,7 +749,7 @@ func (rf *Raft) Loop() {
 		case LEADER:
 			select {
 			case <-time.After(heartBeatInterval):
-				rf.SendHeartBeat()
+				rf.startAppendEntries()
 			case <-rf.RoleChanged:
 				continue
 			case <-rf.ValidRpcReceived:
@@ -813,34 +785,34 @@ func (rf *Raft) Loop() {
 	}
 }
 
-func (rf *Raft) SendHeartBeat() {
+func (rf *Raft) startAppendEntries() {
 	rf.Lock()
-	peers := rf.peers
-	me := rf.me
-	currentTerm := rf.CurrentTerm
-	rf.Unlock()
+	defer rf.Unlock()
 
-	for i := range peers {
-		if i == me {
+	for i := range rf.peers {
+		if i == rf.me {
 			continue
 		}
 
+		// init args
 		args := AppendEntriesArgs{
-			Term:     currentTerm,
-			LeaderID: me,
+			Term:         rf.CurrentTerm,
+			LeaderID:     rf.me,
+			LeaderCommit: rf.CommitIndex,
 		}
 
-		// rf.Lock()
-		// Add backlogged logs
-		// server := i
-		// if rf.MatchIndex[server] < rf.CommitIndex {
-		// 	startIndex := rf.NextIndex[server]
-		// 	endIndex := rf.CommitIndex + 1
-		// 	log.Printf("peer: %v, start index: %v, end index: %v, match index: %v, next index: %v", i, startIndex, endIndex, rf.MatchIndex, rf.NextIndex)
-		// 	args.Entries = append(rf.Log[startIndex:endIndex], args.Entries...)
-		// }
-		// rf.Unlock()
+		// get correspond next index
+		nextIndex := rf.NextIndex[i]
 
+		// set previous logs' index and term
+		prevLog := rf.Log[nextIndex-1]
+		args.PrevLogIndex = prevLog.Index
+		args.PrevLogTerm = prevLog.Term
+
+		// fill up entries
+		args.Entries = append(args.Entries, rf.Log[nextIndex:]...)
+
+		// emit
 		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 	}
 }
@@ -894,7 +866,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// log
 	LogRunnerStart(rf.me)
 
-	go rf.Loop()
+	go rf.loop()
 	// go rf.LeaderAppendEntries()
 
 	return rf
