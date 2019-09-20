@@ -24,6 +24,7 @@ import (
 	// "math"
 	// "github.com/huandu/goroutine"
 	// goroutine "github.com/huandu/go-tls"
+	"github.com/XiaochenCui/goroutine"
 	"runtime"
 	"sort"
 	"strconv"
@@ -450,6 +451,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	goid := goroutine.CurGoroutineID()
+	log.Printf("[racedebug] goroutine %d start", goid)
+
 	if atomic.LoadInt32(&rf.Role) != LEADER {
 		return false
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"os"
 	// "sync"
-	"github.com/go-redis/redis"
+	// "github.com/go-redis/redis"
 )
 
 const (
@@ -35,7 +35,7 @@ var (
 	f       *os.File
 	msgChan = make(chan string, 10)
 
-	redisClient *redis.Client
+	// redisClient *redis.Client
 )
 
 type Runner struct {
