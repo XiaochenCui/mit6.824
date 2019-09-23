@@ -126,34 +126,34 @@ func PreProcess() {
 			runners[runner] = true
 		}
 
-			var l *Lock
-			if action == "acquire" {
-				if r == "at" {
-					lock := Lock{
-						Runner:      runner,
-						AcquireTime: t,
-					}
-					locks[runner] = append(locks[runner], &lock)
-				} else {
-					index := acquireSucIndex[runner]
-					l = locks[runner][index]
-					l.AcquireSucTime = t
-					acquireSucIndex[runner]++
+		var l *Lock
+		if action == "acquire" {
+			if r == "at" {
+				lock := Lock{
+					Runner:      runner,
+					AcquireTime: t,
 				}
+				locks[runner] = append(locks[runner], &lock)
 			} else {
-				if r == "at" {
-					index := releaseIndex[runner]
-					l = locks[runner][index]
-					l.ReleaseTime = t
-					releaseIndex[runner]++
-				} else {
-					index := releaseSucIndex[runner]
-					l = locks[runner][index]
-					l.ReleaseSucTime = t
-					releaseSucIndex[runner]++
-				}
+				index := acquireSucIndex[runner]
+				l = locks[runner][index]
+				l.AcquireSucTime = t
+				acquireSucIndex[runner]++
+			}
+		} else {
+			if r == "at" {
+				index := releaseIndex[runner]
+				l = locks[runner][index]
+				l.ReleaseTime = t
+				releaseIndex[runner]++
+			} else {
+				index := releaseSucIndex[runner]
+				l = locks[runner][index]
+				l.ReleaseSucTime = t
+				releaseSucIndex[runner]++
 			}
 		}
+	}
 	log.Print(locks)
 	for k, v := range locks {
 		log.Printf("runner %d", k)
@@ -172,43 +172,63 @@ func PreProcess() {
 	log.Print(releaseSucIndex)
 
 	var maxD time.Duration
+	var minorMaxD time.Duration
 	var maxL *Lock
+	var minorMaxL *Lock
 
 	for k, v := range locks {
 		log.Printf("runner %d", k)
+		minorMaxD = 0
 		for _, l := range v {
 			newD := l.AcquireSucTime.Sub(l.AcquireTime)
 			if newD > maxD {
 				maxD = newD
 				maxL = l
 			}
+			if newD > minorMaxD {
+				minorMaxD = newD
+				minorMaxL = l
+			}
 		}
+		log.Printf("max acquire time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
 	}
 	log.Printf("max acquire time: %v, lock: %v", maxD, raft.StructToString(maxL))
 
 	maxD = 0
 	for k, v := range locks {
 		log.Printf("runner %d", k)
+		minorMaxD = 0
 		for _, l := range v {
 			newD := l.ReleaseTime.Sub(l.AcquireSucTime)
 			if newD > maxD {
 				maxD = newD
 				maxL = l
 			}
+			if newD > minorMaxD {
+				minorMaxD = newD
+				minorMaxL = l
+			}
 		}
+		log.Printf("max acquire time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
 	}
 	log.Printf("max hold time: %v, lock: %v", maxD, raft.StructToString(maxL))
 
 	maxD = 0
 	for k, v := range locks {
 		log.Printf("runner %d", k)
+		minorMaxD = 0
 		for _, l := range v {
 			newD := l.ReleaseSucTime.Sub(l.ReleaseTime)
 			if newD > maxD {
 				maxD = newD
 				maxL = l
 			}
+			if newD > minorMaxD {
+				minorMaxD = newD
+				minorMaxL = l
+			}
 		}
+		log.Printf("max acquire time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
 	}
 	log.Printf("max release time: %v, lock: %v", maxD, raft.StructToString(maxL))
 }
