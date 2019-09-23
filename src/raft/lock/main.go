@@ -209,7 +209,7 @@ func PreProcess() {
 				minorMaxL = l
 			}
 		}
-		log.Printf("max acquire time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
+		log.Printf("max hold time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
 	}
 	log.Printf("max hold time: %v, lock: %v", maxD, raft.StructToString(maxL))
 
@@ -228,7 +228,7 @@ func PreProcess() {
 				minorMaxL = l
 			}
 		}
-		log.Printf("max acquire time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
+		log.Printf("max release time of %v: %v, lock: %v", k, maxD, raft.StructToString(minorMaxL))
 	}
 	log.Printf("max release time: %v, lock: %v", maxD, raft.StructToString(maxL))
 }
