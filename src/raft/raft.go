@@ -793,13 +793,17 @@ func (rf *Raft) loop() {
 
 func (rf *Raft) startAppendEntries() {
 	rf.Lock()
-	defer rf.Unlock()
+	log.Printf("%v start a AppendEntry round", rf)
+	peers := rf.peers
+	me := rf.me
+	rf.Unlock()
 
-	for i := range rf.peers {
-		if i == rf.me {
+	for i := range peers {
+		if i == me {
 			continue
 		}
 
+		rf.Lock()
 		// init args
 		args := AppendEntriesArgs{
 			Term:         rf.CurrentTerm,
@@ -820,6 +824,8 @@ func (rf *Raft) startAppendEntries() {
 
 		// emit
 		log.Printf("%v send AppendEntry to %v, args: %v, rf attr: %v", rf, i, StructToString(args), StructToString(rf))
+		rf.Unlock()
+
 		go rf.sendAppendEntries(i, &args, &AppendEntriesReply{})
 	}
 }
