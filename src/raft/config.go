@@ -368,9 +368,13 @@ func (cfg *config) checkNoLeader() {
 func (cfg *config) nCommitted(index int) (int, interface{}) {
 	count := 0
 	cmd := -1
-	cfg.mu.Lock()
-	log.Printf("cfg.logs: %v", cfg.logs)
-	cfg.mu.Unlock()
+	// timeA := time.Now()
+	// cfg.mu.Lock()
+	// log.Printf("cfg.logs: %v", cfg.logs)
+	// cfg.mu.Unlock()
+	// timeB := time.Now()
+	// d := timeB.Sub(timeA)
+	// log.Printf("cfg.logs consume: %v", d)
 	for i := 0; i < len(cfg.rafts); i++ {
 		if cfg.applyErr[i] != "" {
 			cfg.t.Fatal(cfg.applyErr[i])

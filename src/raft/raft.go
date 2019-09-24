@@ -491,7 +491,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 	lastLog := args.Entries[len(args.Entries)-1]
 	rf.MatchIndex[server] = lastLog.Index
-	rf.NextIndex[server] += len(args.Entries)
+	rf.NextIndex[server] = lastLog.Index + 1
 	log.Printf("match index: %v", rf.MatchIndex)
 	log.Printf("next index: %v", rf.NextIndex)
 	log.Printf("rf attr: %v", StructToString(rf))
@@ -576,6 +576,9 @@ func (rf *Raft) ConvertToLeader() {
 		rf.NextIndex[i] = rf.CommitIndex + 1
 		rf.MatchIndex[i] = 0
 	}
+
+	// init ticker
+	rf.HeartBeatTicker = time.NewTicker(heartBeatInterval)
 }
 
 func (rf *Raft) ConvertToCandidate() {
@@ -754,11 +757,20 @@ func (rf *Raft) loop() {
 		switch atomic.LoadInt32(&rf.Role) {
 		case LEADER:
 			select {
-			case <-time.After(heartBeatInterval):
+			// case <-time.After(heartBeatInterval):
+			// 	rf.startAppendEntries()
+			// case <-rf.RoleChanged:
+			// 	continue
+			// case <-rf.ValidRpcReceived:
+			// 	continue
+
+			case <-rf.HeartBeatTicker.C:
 				rf.startAppendEntries()
 			case <-rf.RoleChanged:
+				rf.HeartBeatTicker.Stop()
 				continue
 			case <-rf.ValidRpcReceived:
+				rf.HeartBeatTicker.Stop()
 				continue
 			}
 		case FOLLOWER:
@@ -864,7 +876,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.Timeout = time.NewTimer(rf.ElectionTimeout)
 	rf.TimeoutTicker = time.NewTicker(rf.ElectionTimeout)
 	rf.HeartBeat = time.NewTimer(heartBeatInterval)
-	rf.HeartBeatTicker = time.NewTicker(heartBeatInterval)
+	// rf.HeartBeatTicker = time.NewTicker(heartBeatInterval)
 
 	rf.ElectionSuccess = make(chan bool, 1)
 	rf.RoleChanged = make(chan bool, 1)
