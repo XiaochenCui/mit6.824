@@ -354,7 +354,7 @@ func Drawing() {
 			strArr := strings.Split(msg, ":")
 			id, _ := strconv.Atoi(strArr[0])
 			start, _ := strconv.Atoi(strArr[1])
-			end, _ := strconv.Atoi(strArr[1])
+			end, _ := strconv.Atoi(strArr[2])
 
 			y := TimeToY(t)
 			x := runnerXMap[id]
