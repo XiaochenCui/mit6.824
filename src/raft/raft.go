@@ -235,6 +235,10 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int
 	Success bool
+
+	// optimized to reduce the number of rejected AppendEntries RPCs
+	ConflictTerm int
+	ConflictIndex int
 }
 
 func (arg *RequestVoteArgs) String() string {
@@ -397,6 +401,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	prevLog := rf.Log[args.PrevLogIndex]
 	if prevLog.Term != args.PrevLogTerm {
+		reply.ConflictTerm = prevLog.Term
+		for i := 1; i < len(rf.Log); i++ {
+			entry := rf.Log[i]
+			if entry.Term == reply.ConflictTerm {
+				reply.ConflictIndex = i
+				break
+			}
+		}
 		return
 	}
 
@@ -479,6 +491,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	}
 
 	if !reply.Success {
+		log.Printf("[%v -> %v] conflict term: %v, conflict index: %v", rf.me, server, reply.ConflictTerm, reply.ConflictIndex)
 		if rf.NextIndex[server] > 1 {
 			rf.NextIndex[server]--
 		}

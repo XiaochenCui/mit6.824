@@ -94,6 +94,30 @@ func make_config(t *testing.T, n int, unreliable bool) *config {
 	return cfg
 }
 
+func (c *config) Lock() {
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v acquire lock at line %d", c, line)
+	}
+	c.mu.Lock()
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v acquire lock success at line %d", c, line)
+	}
+}
+
+func (c *config) Unlock() {
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v release lock at line %d", c, line)
+	}
+	c.mu.Unlock()
+	if debugLock {
+		_, _, line, _ := runtime.Caller(1)
+		log.Printf("%v release lock success at line %d", c, line)
+	}
+}
+
 // shut down a Raft server but save its persistent state.
 func (cfg *config) crash1(i int) {
 	cfg.disconnect(i)
