@@ -237,7 +237,7 @@ type AppendEntriesReply struct {
 	Success bool
 
 	// optimized to reduce the number of rejected AppendEntries RPCs
-	ConflictTerm int
+	ConflictTerm  int
 	ConflictIndex int
 }
 
@@ -391,13 +391,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.Voters = rf.Voters[:0]
 	rf.ConvertToFollower()
 
-	if args.PrevLogIndex > rf.CommitIndex {
+	selfPrevLog := rf.Log[len(rf.Log)-1]
+
+	if args.PrevLogIndex > selfPrevLog.Index {
+		reply.ConflictTerm = selfPrevLog.Term
+		reply.ConflictIndex = selfPrevLog.Index
 		return
 	}
 
-	if len(rf.Log) < args.PrevLogIndex+1 {
-		return
-	}
+	// if len(rf.Log) < args.PrevLogIndex+1 {
+	// 	return
+	// }
 
 	prevLog := rf.Log[args.PrevLogIndex]
 	if prevLog.Term != args.PrevLogTerm {
