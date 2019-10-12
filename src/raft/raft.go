@@ -391,11 +391,32 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.Voters = rf.Voters[:0]
 	rf.ConvertToFollower()
 
-	selfPrevLog := rf.Log[len(rf.Log)-1]
+	prevLog := rf.Log[len(rf.Log)-1]
+	if args.PrevLogTerm < prevLog.Term {
+		redundantIndex := 1
+		for i := prevLog.Index; i >= 1; i-- {
+			if rf.Log[i].Term <= args.PrevLogTerm {
+				redundantIndex = i + 1
+				break
+			}
+		}
+		rf.Log = rf.Log[:redundantIndex]
+	}
 
-	if args.PrevLogIndex > selfPrevLog.Index {
-		reply.ConflictTerm = selfPrevLog.Term
-		reply.ConflictIndex = selfPrevLog.Index
+	// update prevLog
+	prevLog = rf.Log[len(rf.Log)-1]
+	if args.PrevLogIndex != prevLog.Index || args.PrevLogTerm != prevLog.Term {
+		// The term of the conflicting entry
+		reply.ConflictTerm = prevLog.Term
+		// The first index it stores for the conflict term
+		for i := 1; i < len(rf.Log); i++ {
+			entry := rf.Log[i]
+			if entry.Term == prevLog.Term {
+				reply.ConflictIndex = entry.Index
+				break
+			}
+		}
+
 		return
 	}
 
@@ -403,27 +424,28 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 	return
 	// }
 
-	prevLog := rf.Log[args.PrevLogIndex]
-	if prevLog.Term != args.PrevLogTerm {
-		reply.ConflictTerm = prevLog.Term
-		for i := 1; i < len(rf.Log); i++ {
-			entry := rf.Log[i]
-			if entry.Term == reply.ConflictTerm {
-				reply.ConflictIndex = i
-				break
-			}
-		}
-		return
-	}
+	// prevLog := rf.Log[args.PrevLogIndex]
+	// if prevLog.Term != args.PrevLogTerm {
+	// 	reply.ConflictTerm = prevLog.Term
+	// 	for i := 1; i < len(rf.Log); i++ {
+	// 		entry := rf.Log[i]
+	// 		if entry.Term == reply.ConflictTerm {
+	// 			reply.ConflictIndex = i
+	// 			break
+	// 		}
+	// 	}
+	// 	return
+	// }
 
 	reply.Success = true
 	reply.Term = rf.CurrentTerm
 
 	// update commit index
 	rf.commitEntries(args.Entries)
-	if rf.CommitIndex < args.LeaderCommit {
-		rf.CommitIndex = args.LeaderCommit
-	}
+	// if rf.CommitIndex < args.LeaderCommit {
+	// 	rf.CommitIndex = args.LeaderCommit
+	// }
+
 	// for _, e := range args.Entries {
 	// 	if len(rf.Log)-1 < e.Index {
 	// 		rf.Log = append(rf.Log, e)
@@ -496,8 +518,17 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 	if !reply.Success {
 		log.Printf("[%v -> %v] conflict term: %v, conflict index: %v", rf.me, server, reply.ConflictTerm, reply.ConflictIndex)
-		if rf.NextIndex[server] > 1 {
-			rf.NextIndex[server]--
+		if len(rf.Log)-1 >= reply.ConflictIndex {
+			conflictEntry := rf.Log[reply.ConflictIndex]
+			if conflictEntry.Term == reply.ConflictTerm {
+				rf.NextIndex[server] = reply.ConflictIndex
+			} else {
+				for i := reply.ConflictIndex; i >= 1; i-- {
+					if rf.Log[i].Term <= reply.ConflictTerm {
+						rf.NextIndex[server] = i + 1
+					}
+				}
+			}
 		}
 		return ok
 	}
@@ -548,7 +579,7 @@ func (rf *Raft) commitEntries(es []Entry) {
 			rf.Log = append(rf.Log, e)
 
 			// rf.CommitIndex++
-			rf.UpdateCommitIndex(rf.CommitIndex + 1)
+			rf.UpdateCommitIndex(e.Index)
 			continue
 		}
 
@@ -841,6 +872,7 @@ func (rf *Raft) startAppendEntries() {
 		}
 
 		// get correspond next index
+		log.Printf("%v debug next index %v", rf, rf.NextIndex)
 		nextIndex := rf.NextIndex[i]
 
 		// set previous logs' index and term
