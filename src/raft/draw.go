@@ -42,6 +42,9 @@ type Runner struct {
 }
 
 type Event struct {
+	ID      int
+	Name    string
+	Content string
 }
 
 type Call struct {
@@ -150,6 +153,16 @@ func LogTermUp(id int, before, after int) {
 	LogEvent("term up", string(b))
 }
 
+// func LogCommitChange(id int, name string, s string) {
+// 	e := Event{
+// 		ID:     id,
+// 		Name:   "commit change",
+// 		Content: s,
+// 	}
+// 	b, _ := json.Marshal(e)
+// 	LogEvent("attr change", string(b))
+// }
+
 func LogAttrChange(id int, name string, before, after interface{}) {
 	r := AttrChange{
 		ID:     id,
@@ -175,6 +188,10 @@ func LogApply(id int, start, end int) {
 
 // func LogEvent(name string, content string) {
 // 	go logEvent(name, content)
+// }
+
+// func LogEventStruct(e Event) {
+
 // }
 
 func LogEvent(name string, content string) {

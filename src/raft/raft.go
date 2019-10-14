@@ -465,7 +465,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	if rf.LastApplied < applyTarget {
 		log.Printf("%v going to apply logs, current: %v, aim: %v", rf, rf.LastApplied, applyTarget)
-		rf.applyEntries(rf.LastApplied+1, applyTarget)
+		go rf.applyEntries(rf.LastApplied+1, applyTarget)
 	}
 
 	// for rf.LastApplied < applyTarget {
@@ -548,7 +548,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	if rf.CommitIndex > rf.LastApplied {
 		// commit success
 		// rf.CommitIndex = rf.MatchIndex
-		rf.applyEntries(rf.LastApplied+1, rf.CommitIndex)
+		go rf.applyEntries(rf.LastApplied+1, rf.CommitIndex)
 
 		// for _, e := range args.Entries {
 		// 	// rf.CommitIndex++
@@ -588,10 +588,19 @@ func (rf *Raft) commitEntries(es []Entry) {
 }
 
 func (rf *Raft) applyEntries(start, end int) {
+	rf.Lock()
+	logs := rf.Log
+	current := rf.LastApplied
+	rf.Unlock()
+
+	if current >= end {
+		return
+	}
+
 	LogApply(rf.me, start, end)
 
 	for i := start; i <= end; i++ {
-		e := rf.Log[i]
+		e := logs[i]
 		c, err := strconv.Atoi(e.Command)
 		if err != nil {
 			panic(err)
@@ -604,8 +613,12 @@ func (rf *Raft) applyEntries(start, end int) {
 		}
 		log.Printf("%v apply entry : %v", rf, StructToString(am))
 		rf.ApplyCH <- am
-		rf.LastApplied++
+		// rf.LastApplied++
 	}
+
+	rf.Lock()
+	rf.LastApplied += end - start + 1
+	rf.Unlock()
 }
 
 func (rf *Raft) UpdateCommitIndex(i int) {
