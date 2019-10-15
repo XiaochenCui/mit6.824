@@ -15,8 +15,8 @@ import (
 	"raft"
 	"sort"
 	"strconv"
-	"time"
 	"strings"
+	"time"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"
@@ -44,6 +44,9 @@ var (
 
 	// log file
 	logContent []string
+
+	// events
+	events []raft.Event
 
 	// image size
 	W = 1424
@@ -133,7 +136,13 @@ func ReadLog() {
 		msg := strings.TrimSpace(logMap["message"])
 		// panic(nil)
 
-		logContent = append(logContent, msg)
+		if _, ok := logMap["module"]; ok {
+			var e raft.Event
+			json.Unmarshal([]byte(msg), &e)
+			events = append(events, e)
+		} else {
+			logContent = append(logContent, msg)
+		}
 		// logContent = append(logContent, "\n")
 	}
 	log.Print(logContent)
@@ -143,6 +152,17 @@ func ReadLog() {
 func Preprocess() {
 	intervalsMap := make(map[int][]Interval)
 	for _, line := range logContent {
+
+		// handle new evnet format
+		// logMap := make(map[string]string)
+		// json.Unmarshal([]byte(line), &logMap)
+		// if _, ok := logMap["module"]; ok {
+		// 	handleEvent(logMap["message"])
+		// 	continue
+		// }
+
+		// log.Print(logMap)
+
 		t, header, msg := ParseLine(line)
 		log.Print(t, header, msg)
 
@@ -234,7 +254,52 @@ func Preprocess() {
 }
 
 func Drawing() {
+	// log.Print(events)
+	// panic(events)
+	for _, e := range events {
+		switch e.Name {
+		case "commit index update":
+			t, err := time.Parse(time.RFC3339Nano, string(e.Time))
+			if err != nil {
+				panic(e)
+			}
+
+			s := fmt.Sprintf("CommitIndex: %v", e.Content)
+			x := runnerXMap[e.ID]
+			y := TimeToY(t)
+			DrawString(s, x+10, y, "#f37736")
+		}
+		// sw
+		// ac := raft.AttrChange{}
+		// err := json.Unmarshal([]byte(msg), &ac)
+		// if err != nil {
+		// 	panic(err)
+		// }
+
+		// y := TimeToY(t)
+		// x := runnerXMap[ac.ID]
+
+		// log.Printf("id: %v, x: %v", id, x)
+		// dc.SetHexColor("#fed766")
+		// dc.DrawPoint(x, y, 7)
+		// dc.Fill()
+		// dc.Stroke()
+
+		// s := fmt.Sprintf("%s: %v -> %v", ac.Name, ac.Before, ac.After)
+		// DrawString(s, x+10, y, "#f37736")
+		// DrawString(s, x+10, y, "#f37736")
+	}
+
 	for _, line := range logContent {
+
+		// handle new evnet format
+		// logMap := make(map[string]string)
+		// json.Unmarshal([]byte(line), &logMap)
+		// if _, ok := logMap["module"]; ok {
+		// 	handleEvent(logMap["message"])
+		// 	continue
+		// }
+
 		t, header, msg := ParseLine(line)
 
 		switch header {
@@ -331,7 +396,10 @@ func Drawing() {
 			s := fmt.Sprintf("term up: %d -> %d", rc.Before, rc.After)
 			DrawString(s, x+10, y, "#fed766")
 
+		// TODO: remove
 		case "attr change":
+			continue
+
 			ac := raft.AttrChange{}
 			err := json.Unmarshal([]byte(msg), &ac)
 			if err != nil {
@@ -401,6 +469,7 @@ func Drawing() {
 }
 
 func ParseLine(s string) (time.Time, string, string) {
+	log.Print(s)
 	byteArr := bytes.Split([]byte(s), []byte("$$"))
 	timeString := string(byteArr[0])
 	log.Print(timeString)
@@ -522,4 +591,9 @@ func contains(s []int, e int) bool {
 
 func save() {
 	dc.SavePNG("out.png")
+}
+
+func handleEvent(s string) {
+	log.Print(s)
+	panic(nil)
 }

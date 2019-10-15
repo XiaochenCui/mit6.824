@@ -43,6 +43,7 @@ type Runner struct {
 
 type Event struct {
 	ID      int
+	Time    string
 	Name    string
 	Content string
 }
@@ -193,6 +194,14 @@ func LogApply(id int, start, end int) {
 // func LogEventStruct(e Event) {
 
 // }
+
+func LogEventNew(e Event) {
+	t := time.Now()
+	e.Time = t.Format(time.RFC3339Nano)
+
+	b, _ := json.Marshal(e)
+	log.Debug().Str("module", "draw").Msg(string(b))
+}
 
 func LogEvent(name string, content string) {
 	t := time.Now()

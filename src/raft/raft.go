@@ -518,6 +518,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 
 	if !reply.Success {
 		log.Printf("[%v -> %v] conflict term: %v, conflict index: %v", rf.me, server, reply.ConflictTerm, reply.ConflictIndex)
+
+		// conflict entry found, degrade next index to resend some previous entries
 		if len(rf.Log)-1 >= reply.ConflictIndex {
 			conflictEntry := rf.Log[reply.ConflictIndex]
 			if conflictEntry.Term == reply.ConflictTerm {
@@ -530,6 +532,12 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 				}
 			}
 		}
+
+		// prevent the NextIndex from degrade to less than 1
+		if rf.NextIndex[server] < 1 {
+			rf.NextIndex[server] = 1
+		}
+
 		return ok
 	}
 
@@ -574,33 +582,73 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 }
 
 func (rf *Raft) commitEntries(es []Entry) {
+	if len(es) == 0 {
+		return
+	}
+
+	indexes := []int{rf.CommitIndex}
+
 	for _, e := range es {
 		if len(rf.Log)-1 < e.Index {
 			rf.Log = append(rf.Log, e)
 
 			// rf.CommitIndex++
-			rf.UpdateCommitIndex(e.Index)
+			// rf.UpdateCommitIndex(e.Index)
+			rf.CommitIndex = e.Index
+			indexes = append(indexes, e.Index)
 			continue
 		}
 
 		rf.Log[e.Index] = e
 	}
+
+	log.Print(indexes)
+	// panic(nil)
+	s := indexesToStr(indexes)
+
+	LogEventNew(Event{
+		ID: rf.me,
+		Name: "commit index update",
+		Content: s,
+	})
+}
+
+func indexesToStr(indexes []int) string {
+	result := []int{}
+	for i, index := range indexes {
+		if i == 0 || i == len(indexes) - 1 {
+			result = append(result, index)
+			continue
+		}
+		if index * 2 == indexes[i-1] + indexes[i+1] {
+			continue
+		}
+		result = append(result, index)
+	}
+
+	s := ""
+	for _, n := range result {
+		s += fmt.Sprintf("%d...", n)
+	}
+	return s[:len(s)-3]
 }
 
 func (rf *Raft) applyEntries(start, end int) {
 	rf.Lock()
-	logs := rf.Log
-	current := rf.LastApplied
-	rf.Unlock()
+	defer rf.Unlock()
 
-	if current >= end {
+	// logs := rf.Log
+	// current := rf.LastApplied
+	// rf.Unlock()
+
+	if rf.LastApplied >= end {
 		return
 	}
 
 	LogApply(rf.me, start, end)
 
 	for i := start; i <= end; i++ {
-		e := logs[i]
+		e := rf.Log[i]
 		c, err := strconv.Atoi(e.Command)
 		if err != nil {
 			panic(err)
@@ -613,16 +661,16 @@ func (rf *Raft) applyEntries(start, end int) {
 		}
 		log.Printf("%v apply entry : %v", rf, StructToString(am))
 		rf.ApplyCH <- am
-		// rf.LastApplied++
+		rf.LastApplied++
 	}
 
-	rf.Lock()
-	rf.LastApplied += end - start + 1
-	rf.Unlock()
+	// rf.Lock()
+	// rf.LastApplied += end - start + 1
+	// rf.Unlock()
 }
 
 func (rf *Raft) UpdateCommitIndex(i int) {
-	LogAttrChange(rf.me, "CommitIndex", rf.CommitIndex, i)
+	// LogAttrChange(rf.me, "CommitIndex", rf.CommitIndex, i)
 	rf.CommitIndex = i
 }
 
@@ -846,6 +894,9 @@ func (rf *Raft) loop() {
 				log.Printf("loop %v, %v convert to candidate", loopIndex, rf)
 				rf.Unlock()
 			case <-rf.ValidRpcReceived:
+				rf.Lock()
+				log.Printf("%v receive valid rpc, keep follow", rf)
+				rf.Unlock()
 				continue
 			}
 
