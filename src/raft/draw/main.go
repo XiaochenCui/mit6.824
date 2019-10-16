@@ -541,6 +541,9 @@ func DrawTimeSeries(base, end time.Time) {
 }
 
 func DrawString(s string, x, y float64, color string) {
+	if x > 700 && x < 800 {
+		log.Printf("[debug] s: %v, x: %v, y: %v", s, x, y)
+	}
 	se := String{
 		S:     s,
 		X:     x,

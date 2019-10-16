@@ -552,11 +552,22 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	log.Printf("next index: %v", rf.NextIndex)
 	log.Printf("rf attr: %v", StructToString(rf))
 
+	originCommitIndex := rf.CommitIndex
 	rf.CommitIndex = getMaxCommited(rf.MatchIndex)
 	if rf.CommitIndex > rf.LastApplied {
 		// commit success
 		// rf.CommitIndex = rf.MatchIndex
 		go rf.applyEntries(rf.LastApplied+1, rf.CommitIndex)
+
+		if originCommitIndex < rf.CommitIndex {
+			indexes := []int{originCommitIndex, rf.CommitIndex}
+			s := indexesToStr(indexes)
+			LogEventNew(Event{
+				ID:      rf.me,
+				Name:    "commit index update",
+				Content: s,
+			})
+		}
 
 		// for _, e := range args.Entries {
 		// 	// rf.CommitIndex++
@@ -607,8 +618,8 @@ func (rf *Raft) commitEntries(es []Entry) {
 	s := indexesToStr(indexes)
 
 	LogEventNew(Event{
-		ID: rf.me,
-		Name: "commit index update",
+		ID:      rf.me,
+		Name:    "commit index update",
 		Content: s,
 	})
 }
@@ -616,11 +627,11 @@ func (rf *Raft) commitEntries(es []Entry) {
 func indexesToStr(indexes []int) string {
 	result := []int{}
 	for i, index := range indexes {
-		if i == 0 || i == len(indexes) - 1 {
+		if i == 0 || i == len(indexes)-1 {
 			result = append(result, index)
 			continue
 		}
-		if index * 2 == indexes[i-1] + indexes[i+1] {
+		if index*2 == indexes[i-1]+indexes[i+1] {
 			continue
 		}
 		result = append(result, index)
