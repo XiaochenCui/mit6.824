@@ -892,10 +892,10 @@ func (rf *Raft) loop() {
 				rf.startAppendEntries()
 			case <-rf.RoleChanged:
 				rf.HeartBeatTicker.Stop()
-				continue
+				// continue
 			case <-rf.ValidRpcReceived:
 				rf.HeartBeatTicker.Stop()
-				continue
+				// continue
 			}
 		case FOLLOWER:
 			// rf.Lock()
@@ -912,7 +912,8 @@ func (rf *Raft) loop() {
 				rf.Lock()
 				log.Printf("%v receive valid rpc, keep follow", rf)
 				rf.Unlock()
-				continue
+				// continue
+			case <-rf.RoleChanged:
 			}
 
 		case CANDIDATE:
