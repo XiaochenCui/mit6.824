@@ -403,7 +403,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 		}
 		rf.Log = rf.Log[:redundantIndex]
-		rf.CommitIndex = redundantIndex
+		rf.CommitIndex = redundantIndex - 1
 	}
 
 	// update prevLog
@@ -688,10 +688,10 @@ func (rf *Raft) applyEntries(start, end int) {
 	// rf.Unlock()
 }
 
-func (rf *Raft) UpdateCommitIndex(i int) {
-	// LogAttrChange(rf.me, "CommitIndex", rf.CommitIndex, i)
-	rf.CommitIndex = i
-}
+// func (rf *Raft) UpdateCommitIndex(i int) {
+// 	// LogAttrChange(rf.me, "CommitIndex", rf.CommitIndex, i)
+// 	rf.CommitIndex = i
+// }
 
 func (rf *Raft) ConvertToLeader() {
 	LogRoleChange(rf.me, RoleMap[rf.Role], RoleLeader)
