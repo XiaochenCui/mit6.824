@@ -306,7 +306,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastLog := rf.Log[rf.CommitIndex]
 		log.Printf("%v last log: %v", rf, StructToString(lastLog))
 		if args.LastLogTerm >= lastLog.Term && args.LastLogIndex >= lastLog.Index {
-			rf.ValidRpcReceived <- true
+			// rf.ValidRpcReceived <- true
+			unblockSend(rf.ValidRpcReceived)
 
 			rf.ConvertToFollower()
 			reply.VoteGranted = true
@@ -386,7 +387,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	rf.CurrentTerm = args.Term
 
-	rf.ValidRpcReceived <- true
+	unblockSend(rf.ValidRpcReceived)
+
 	rf.VotedFor = -1
 	rf.Voters = rf.Voters[:0]
 	rf.ConvertToFollower()
@@ -515,7 +517,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	if reply.Term > rf.CurrentTerm {
 		rf.CurrentTerm = reply.Term
 		rf.ConvertToFollower()
-		rf.RoleChanged <- true
+		// rf.RoleChanged <- true
+		unblockSend(rf.RoleChanged)
 	}
 	if !ok {
 		return ok
@@ -856,7 +859,8 @@ func (rf *Raft) NewElection() {
 
 				if electionSuccess {
 					go rf.startAppendEntries()
-					rf.ElectionSuccess <- true
+					// rf.ElectionSuccess <- true
+					unblockSend(rf.ElectionSuccess)
 				}
 			}
 		}(i)
@@ -1041,4 +1045,11 @@ func getMaxCommited(a []int) int {
 	mid := len(l)/2 + 1
 	log.Printf("mid: %v, v: %v", mid, l[mid])
 	return l[mid]
+}
+
+func unblockSend(c chan bool) {
+	select {
+	case c <- true:
+	default:
+	}
 }

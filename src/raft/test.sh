@@ -1,7 +1,8 @@
 #!/bin/bash
 
 CMD="go test -v -race -timeout 10s -run TestFailNoAgree2B | tee out"
-for i in {0..100}; do
+CMD="go test -v -race -timeout 30s -run TestBackup2B | tee out"
+for i in {0..200}; do
     # printf '%s\n' "$i"
     # false
     eval $CMD
