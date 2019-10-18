@@ -401,6 +401,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 		}
 		rf.Log = rf.Log[:redundantIndex]
+		rf.CommitIndex = redundantIndex
 	}
 
 	// update prevLog
@@ -905,6 +906,13 @@ func (rf *Raft) loop() {
 			select {
 			case <-time.After(rf.ElectionTimeout):
 				rf.Lock()
+				select {
+				case <-rf.ValidRpcReceived:
+					log.Printf("%v receive valid rpc, keep follow", rf)
+					rf.Unlock()
+					continue
+				default:
+				}
 				rf.ConvertToCandidate()
 				log.Printf("loop %v, %v convert to candidate", loopIndex, rf)
 				rf.Unlock()

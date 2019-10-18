@@ -10,8 +10,10 @@ for i in {0..100}; do
     echo $endline
     if [[ $endline == "FAIL"* ]]; then
         printf '%s\n' "var does not end with sub_string."
+        printf "%d loop failed\n" $i
         exit 1
     fi
+    printf "%d loop success\n" $i
     sleep 2
     # if [[ $? > 0 ]]; then
     #     exit 1
